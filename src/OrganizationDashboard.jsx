@@ -1,3 +1,4 @@
+// Organization Dashboard - Main View
 import React, { useState } from 'react';
 import './OrganizationDashboard.css';
 
