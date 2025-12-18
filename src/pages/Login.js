@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import './Login.css';
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import "./Login.css";
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
-  const [userType, setUserType] = useState('donor');
+  const [userType, setUserType] = useState("donor");
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
+    email: "",
+    password: "",
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -18,56 +19,87 @@ const Login = () => {
       ...formData,
       [name]: value,
     });
-    setError('');
+    setError("");
   };
 
   const handleUserTypeChange = (type) => {
     setUserType(type);
+    setError("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError("");
 
     // Basic validation
     if (!formData.email || !formData.password) {
-      setError('Please fill in all fields');
+      setError("Please fill in all fields");
       return;
     }
 
-    // Here you would typically make an API call to authenticate
-    console.log('Login attempt:', { ...formData, userType });
+    try {
+      setIsSubmitting(true);
 
-    // In a real app, you'd get user data from API response
-    // For now, we'll check localStorage or use email as fallback
-    let userData = JSON.parse(localStorage.getItem('userData')) || {};
+      const res = await fetch("/api/auth/login/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          userType: userType, // backend checks role if provided
+        }),
+      });
 
-    // Update user data with current login info
-    userData = {
-      ...userData,
-      email: formData.email,
-      role: userType,
-      loginTime: new Date().toISOString()
-    };
+      const data = await res.json();
 
-    // If no name exists, use email username part as fallback
-    if (!userData.name) {
-      userData.name = formData.email.split('@')[0];
-    }
+      if (!res.ok) {
+        // Backend may return {detail: "..."} or validation errors
+        const msg =
+          data?.detail ||
+          data?.message ||
+          (typeof data === "object" ? JSON.stringify(data) : "Login failed");
+        throw new Error(msg);
+      }
 
-    localStorage.setItem('userData', JSON.stringify(userData));
+      // ✅ Store tokens for future authenticated requests (donations, me, etc.)
+      if (data?.tokens?.access)
+        localStorage.setItem("auth:access", data.tokens.access);
+      if (data?.tokens?.refresh)
+        localStorage.setItem("auth:refresh", data.tokens.refresh);
 
-    // Navigate based on user type
-    if (userType === 'donor') {
-      navigate('/donor-home');
-    } else if (userType === 'recipient') {
-      // Navigate to recipient home when created
-      navigate('/donor-home'); // Temporary - replace with recipient home
-    } else if (userType === 'organization') {
-      // Navigate to organization home when created
-      navigate('/donor-home'); // Temporary - replace with organization home
-    } else {
-      navigate('/donor-home');
+      // ✅ Store user object (backend returns user)
+      if (data?.user)
+        localStorage.setItem("auth:user", JSON.stringify(data.user));
+
+      // ✅ Keep your old frontend logic working (existing pages read userData)
+      const backendUser = data?.user || {};
+      const userData = {
+        email: backendUser.email || formData.email,
+        role: userType,
+        loginTime: new Date().toISOString(),
+        name:
+          backendUser.name ||
+          backendUser.username ||
+          (formData.email.includes("@")
+            ? formData.email.split("@")[0]
+            : formData.email),
+      };
+      localStorage.setItem("userData", JSON.stringify(userData));
+
+      // Navigate based on user type (same as your old behavior)
+      if (userType === "donor") {
+        navigate("/donor-home");
+      } else if (userType === "recipient") {
+        navigate("/donor-home"); // Temporary - replace with recipient home later
+      } else if (userType === "organization") {
+        navigate("/donor-home"); // Temporary - replace with organization home later
+      } else {
+        navigate("/donor-home");
+      }
+    } catch (err) {
+      setError(err.message || "Login failed");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -77,7 +109,9 @@ const Login = () => {
         <div className="header-content">
           <div className="logo-section">
             <div className="logo-icon">
-              <span className="material-symbols-outlined">volunteer_activism</span>
+              <span className="material-symbols-outlined">
+                volunteer_activism
+              </span>
             </div>
             <h2 className="logo-text">HelpingHand</h2>
           </div>
@@ -94,37 +128,41 @@ const Login = () => {
         <div className="login-content">
           <div className="login-header-section">
             <h1 className="login-title">Welcome Back</h1>
-            <p className="login-subtitle">
-              Sign in to continue to HelpingHand
-            </p>
+            <p className="login-subtitle">Sign in to continue to HelpingHand</p>
           </div>
 
           {/* User Type Selection */}
           <div className="user-type-section">
-            <label className="user-type-label">
-              I am a:
-            </label>
+            <label className="user-type-label">I am a:</label>
             <div className="user-type-options">
               <button
                 type="button"
-                className={`user-type-btn ${userType === 'donor' ? 'active' : ''}`}
-                onClick={() => handleUserTypeChange('donor')}
+                className={`user-type-btn ${
+                  userType === "donor" ? "active" : ""
+                }`}
+                onClick={() => handleUserTypeChange("donor")}
               >
-                <span className="material-symbols-outlined">volunteer_activism</span>
+                <span className="material-symbols-outlined">
+                  volunteer_activism
+                </span>
                 <span>Donor</span>
               </button>
               <button
                 type="button"
-                className={`user-type-btn ${userType === 'recipient' ? 'active' : ''}`}
-                onClick={() => handleUserTypeChange('recipient')}
+                className={`user-type-btn ${
+                  userType === "recipient" ? "active" : ""
+                }`}
+                onClick={() => handleUserTypeChange("recipient")}
               >
                 <span className="material-symbols-outlined">pan_tool</span>
                 <span>Recipient</span>
               </button>
               <button
                 type="button"
-                className={`user-type-btn ${userType === 'organization' ? 'active' : ''}`}
-                onClick={() => handleUserTypeChange('organization')}
+                className={`user-type-btn ${
+                  userType === "organization" ? "active" : ""
+                }`}
+                onClick={() => handleUserTypeChange("organization")}
               >
                 <span className="material-symbols-outlined">business</span>
                 <span>Organization</span>
@@ -132,7 +170,7 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Social Login */}
+          {/* Social Login (still UI only) */}
           <div className="social-login-section">
             <button className="social-btn google-btn" type="button">
               <img
@@ -143,7 +181,11 @@ const Login = () => {
               <span>Continue with Google</span>
             </button>
             <button className="social-btn facebook-btn" type="button">
-              <svg className="social-icon" viewBox="0 0 24 24" fill="currentColor">
+              <svg
+                className="social-icon"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
               </svg>
               <span>Continue with Facebook</span>
@@ -187,7 +229,7 @@ const Login = () => {
               </label>
               <div className="password-input-wrapper">
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   id="password"
                   name="password"
                   placeholder="Enter your password"
@@ -202,7 +244,7 @@ const Login = () => {
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   <span className="material-symbols-outlined">
-                    {showPassword ? 'visibility_off' : 'visibility'}
+                    {showPassword ? "visibility_off" : "visibility"}
                   </span>
                 </button>
               </div>
@@ -218,8 +260,12 @@ const Login = () => {
               </Link>
             </div>
 
-            <button type="submit" className="submit-btn">
-              Sign In
+            <button
+              type="submit"
+              className="submit-btn"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Signing In..." : "Sign In"}
             </button>
           </form>
         </div>
@@ -229,5 +275,3 @@ const Login = () => {
 };
 
 export default Login;
-
-
