@@ -16,80 +16,6 @@ const Donate = () => {
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // ---------- helpers ----------
-  const safeJson = async (res) => {
-    try {
-      return await res.json();
-    } catch {
-      return null;
-    }
-  };
-
-  const clearAuth = () => {
-    localStorage.removeItem("auth:access");
-    localStorage.removeItem("auth:refresh");
-    // NOTE: we do NOT remove userData here (DonorHome uses it for name/email).
-  };
-
-  // (optional but good) auto-refresh if access expired, then retry once
-  const refreshAccessToken = async () => {
-    const refresh = localStorage.getItem("auth:refresh");
-    if (!refresh) return null;
-
-    // Try common refresh endpoints (one of these should match your backend)
-    const candidates = [
-      { url: "/api/auth/refresh/", body: { refresh } }, // SimpleJWT style
-      { url: "/api/auth/refresh/", body: { refresh_token: refresh } }, // custom style
-      { url: "/api/token/refresh/", body: { refresh } }, // another common style
-    ];
-
-    for (const c of candidates) {
-      try {
-        const res = await fetch(c.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(c.body),
-        });
-
-        const data = await safeJson(res);
-        if (res.ok && data?.access) {
-          localStorage.setItem("auth:access", data.access);
-          if (data.refresh) localStorage.setItem("auth:refresh", data.refresh);
-          return data.access;
-        }
-      } catch {
-        // ignore and try next candidate
-      }
-    }
-
-    return null;
-  };
-
-  const authFetch = async (url, options = {}) => {
-    const access = localStorage.getItem("auth:access");
-    const headers = {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${access}`,
-    };
-
-    let res = await fetch(url, { ...options, headers });
-
-    // If unauthorized, try refresh once then retry
-    if (res.status === 401) {
-      const newAccess = await refreshAccessToken();
-      if (newAccess) {
-        const headers2 = {
-          ...(options.headers || {}),
-          Authorization: `Bearer ${newAccess}`,
-        };
-        res = await fetch(url, { ...options, headers: headers2 });
-      }
-    }
-
-    return res;
-  };
-
-  // ---------- Load campaign from backend API ----------
   useEffect(() => {
     async function loadCampaign() {
       try {
@@ -97,12 +23,9 @@ const Donate = () => {
         setLoadingCampaign(true);
 
         const res = await fetch(`/api/campaigns/${campaignId}/`);
-        const data = await safeJson(res);
+        const data = await res.json().catch(() => null);
 
-        if (!res.ok) {
-          throw new Error(data?.detail || "Campaign not found");
-        }
-
+        if (!res.ok) throw new Error(data?.detail || "Campaign not found");
         setCampaign(data);
       } catch (e) {
         setCampaign(null);
@@ -156,33 +79,27 @@ const Donate = () => {
     try {
       const campaignPk = parseInt(campaignId, 10);
 
-      // backend expects "campaign" (FK)
+      // ✅ backend expects FK field name: "campaign"
       const payload = {
         campaign: campaignPk,
-        amount: amount,
-        paymentMethod: paymentMethod,
-        isAnonymous: isAnonymous,
+        amount,
+        paymentMethod,
+        isAnonymous,
         status: "Completed",
       };
 
-      const res = await authFetch("/api/donations/", {
+      const res = await fetch("/api/donations/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
 
-      const data = await safeJson(res);
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // if still 401 after refresh attempt -> force login
-        if (res.status === 401) {
-          clearAuth();
-          setError("Session expired. Please log in again.");
-          navigate("/login");
-          return;
-        }
-
-        // show DRF-style field errors nicely
         let msg = `HTTP ${res.status}`;
         if (data) {
           if (typeof data === "string") msg = data;
@@ -200,8 +117,8 @@ const Donate = () => {
         throw new Error(msg);
       }
 
-      // ✅ IMPORTANT: No more localStorage donation saving.
-      // DonationHistory / DonorHome already read from /api/donations/
+      // ✅ IMPORTANT: stop writing donations to localStorage
+      // DonationHistory + DonorHome now load from /api/donations/
       navigate("/donation-history");
     } catch (e) {
       setError(e.message || "Donation failed");
@@ -210,7 +127,6 @@ const Donate = () => {
     }
   };
 
-  // ---------- Loading / error state ----------
   if (loadingCampaign) {
     return (
       <div className="donate-page">
@@ -264,7 +180,6 @@ const Donate = () => {
 
       <main className="donate-main">
         <div className="donate-content">
-          {/* Campaign Info */}
           <div className="campaign-info-card">
             <div className="campaign-image-large">
               <span className="campaign-emoji-large">{campaign.image}</span>
@@ -275,7 +190,6 @@ const Donate = () => {
             </div>
           </div>
 
-          {/* Donation Form */}
           <form className="donation-form" onSubmit={handleSubmit}>
             {error && (
               <div className="error-message">
@@ -284,20 +198,19 @@ const Donate = () => {
               </div>
             )}
 
-            {/* Amount Selection */}
             <div className="form-section">
               <label className="form-label">Select Donation Amount</label>
               <div className="amount-buttons">
-                {quickAmounts.map((amount) => (
+                {quickAmounts.map((a) => (
                   <button
-                    key={amount}
+                    key={a}
                     type="button"
                     className={`amount-btn ${
-                      donationAmount === String(amount) ? "active" : ""
+                      donationAmount === String(a) ? "active" : ""
                     }`}
-                    onClick={() => handleAmountSelect(amount)}
+                    onClick={() => handleAmountSelect(a)}
                   >
-                    ${amount}
+                    ${a}
                   </button>
                 ))}
               </div>
@@ -319,7 +232,6 @@ const Donate = () => {
               </div>
             </div>
 
-            {/* Payment Method */}
             <div className="form-section">
               <label className="form-label">Payment Method</label>
               <div className="payment-methods">
@@ -359,7 +271,6 @@ const Donate = () => {
               </div>
             </div>
 
-            {/* Anonymous Donation */}
             <div className="form-section">
               <label className="checkbox-label">
                 <input
@@ -372,7 +283,6 @@ const Donate = () => {
               </label>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               className="submit-donation-btn"
