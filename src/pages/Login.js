@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import "./Login.css";
 
 function extractErrorMessage(data) {
@@ -26,6 +26,10 @@ const Login = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ✅ If user was redirected here by ProtectedRoute, it stored the original page in state.from
+  const redirectTo = location.state?.from?.pathname || "/donor-home";
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -95,8 +99,8 @@ const Login = () => {
       };
       localStorage.setItem("userData", JSON.stringify(userData));
 
-      // go dashboard
-      navigate("/donor-home");
+      // ✅ Redirect to original requested page (ProtectedRoute) or fallback
+      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(err.message || "Login failed");
     } finally {
