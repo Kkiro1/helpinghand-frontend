@@ -16,7 +16,80 @@ const Donate = () => {
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Load campaign from backend API
+  // ---------- helpers ----------
+  const safeJson = async (res) => {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
+  const clearAuth = () => {
+    localStorage.removeItem("auth:access");
+    localStorage.removeItem("auth:refresh");
+    // NOTE: we do NOT remove userData here (DonorHome uses it for name/email).
+  };
+
+  // (optional but good) auto-refresh if access expired, then retry once
+  const refreshAccessToken = async () => {
+    const refresh = localStorage.getItem("auth:refresh");
+    if (!refresh) return null;
+
+    // Try common refresh endpoints (one of these should match your backend)
+    const candidates = [
+      { url: "/api/auth/refresh/", body: { refresh } }, // SimpleJWT style
+      { url: "/api/auth/refresh/", body: { refresh_token: refresh } }, // custom style
+      { url: "/api/token/refresh/", body: { refresh } }, // another common style
+    ];
+
+    for (const c of candidates) {
+      try {
+        const res = await fetch(c.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(c.body),
+        });
+
+        const data = await safeJson(res);
+        if (res.ok && data?.access) {
+          localStorage.setItem("auth:access", data.access);
+          if (data.refresh) localStorage.setItem("auth:refresh", data.refresh);
+          return data.access;
+        }
+      } catch {
+        // ignore and try next candidate
+      }
+    }
+
+    return null;
+  };
+
+  const authFetch = async (url, options = {}) => {
+    const access = localStorage.getItem("auth:access");
+    const headers = {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${access}`,
+    };
+
+    let res = await fetch(url, { ...options, headers });
+
+    // If unauthorized, try refresh once then retry
+    if (res.status === 401) {
+      const newAccess = await refreshAccessToken();
+      if (newAccess) {
+        const headers2 = {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${newAccess}`,
+        };
+        res = await fetch(url, { ...options, headers: headers2 });
+      }
+    }
+
+    return res;
+  };
+
+  // ---------- Load campaign from backend API ----------
   useEffect(() => {
     async function loadCampaign() {
       try {
@@ -24,7 +97,7 @@ const Donate = () => {
         setLoadingCampaign(true);
 
         const res = await fetch(`/api/campaigns/${campaignId}/`);
-        const data = await res.json().catch(() => null);
+        const data = await safeJson(res);
 
         if (!res.ok) {
           throw new Error(data?.detail || "Campaign not found");
@@ -55,11 +128,9 @@ const Donate = () => {
 
   const handleCustomAmountChange = (e) => {
     const value = e.target.value;
-
-    // allow empty or digits only
     if (value === "" || /^\d+$/.test(value)) {
       setCustomAmount(value);
-      setDonationAmount(value); // if empty -> clears donationAmount too
+      setDonationAmount(value);
     }
   };
 
@@ -85,7 +156,7 @@ const Donate = () => {
     try {
       const campaignPk = parseInt(campaignId, 10);
 
-      // ✅ FIX: backend expects "campaign" (FK), not "campaignId"
+      // backend expects "campaign" (FK)
       const payload = {
         campaign: campaignPk,
         amount: amount,
@@ -94,23 +165,25 @@ const Donate = () => {
         status: "Completed",
       };
 
-      console.log("DONATION payload:", payload);
-
-      const res = await fetch("/api/donations/", {
+      const res = await authFetch("/api/donations/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json().catch(() => null);
+      const data = await safeJson(res);
 
       if (!res.ok) {
-        // show real DRF errors
-        let msg = `HTTP ${res.status}`;
+        // if still 401 after refresh attempt -> force login
+        if (res.status === 401) {
+          clearAuth();
+          setError("Session expired. Please log in again.");
+          navigate("/login");
+          return;
+        }
 
+        // show DRF-style field errors nicely
+        let msg = `HTTP ${res.status}`;
         if (data) {
           if (typeof data === "string") msg = data;
           else if (data.detail) msg = data.detail;
@@ -124,31 +197,11 @@ const Donate = () => {
               .join(" | ");
           }
         }
-
         throw new Error(msg);
       }
 
-      // Temporary UI compatibility: keep localStorage donation history
-      const donations = JSON.parse(localStorage.getItem("donations") || "[]");
-      const newDonation = {
-        id: data?.id || Date.now(),
-        campaignTitle: data?.campaignTitle || campaign?.title,
-        organization: data?.organization || campaign?.organization,
-        amount: amount,
-        date: data?.date || new Date().toISOString(),
-        paymentMethod: data?.paymentMethod || paymentMethod,
-        isAnonymous: data?.isAnonymous ?? isAnonymous,
-        status: data?.status || "Completed",
-      };
-      donations.unshift(newDonation);
-      localStorage.setItem("donations", JSON.stringify(donations));
-
-      // Temporary UI compatibility: update total donations in userData
-      const userData = JSON.parse(localStorage.getItem("userData") || "{}");
-      const currentTotal = userData.totalDonations || 0;
-      userData.totalDonations = currentTotal + amount;
-      localStorage.setItem("userData", JSON.stringify(userData));
-
+      // ✅ IMPORTANT: No more localStorage donation saving.
+      // DonationHistory / DonorHome already read from /api/donations/
       navigate("/donation-history");
     } catch (e) {
       setError(e.message || "Donation failed");
@@ -157,7 +210,7 @@ const Donate = () => {
     }
   };
 
-  // Loading / error state
+  // ---------- Loading / error state ----------
   if (loadingCampaign) {
     return (
       <div className="donate-page">
