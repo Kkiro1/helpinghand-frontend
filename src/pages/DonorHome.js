@@ -5,28 +5,227 @@ import "./DonorHome.css";
 const DonorHome = () => {
   const navigate = useNavigate();
 
-  const [donorName, setDonorName] = useState("User"); // Default fallback
+  const [donorName, setDonorName] = useState("User");
   const [userEmail, setUserEmail] = useState("");
 
   const [totalDonations, setTotalDonations] = useState(0);
-  const [recentDonations, setRecentDonations] = useState([]);
   const [totalCampaigns, setTotalCampaigns] = useState(0);
   const [thisMonthTotal, setThisMonthTotal] = useState(0);
+  const [recentDonations, setRecentDonations] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    // Load user info from localStorage (name/email for header)
-    const userData = JSON.parse(localStorage.getItem("userData") || "{}");
+  // ---------- helpers ----------
+  const safeJson = async (res) => {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
+  const clearAuth = () => {
+    localStorage.removeItem("auth:access");
+    localStorage.removeItem("auth:refresh");
+    localStorage.removeItem("auth:user");
+    localStorage.removeItem("userData");
+  };
+
+  const refreshAccessToken = async () => {
+    const refresh = localStorage.getItem("auth:refresh");
+    if (!refresh) return null;
+
+    const candidates = [
+      { url: "/api/auth/refresh/", body: { refresh } },
+      { url: "/api/auth/refresh/", body: { refresh_token: refresh } },
+      { url: "/api/token/refresh/", body: { refresh } },
+    ];
+
+    for (const c of candidates) {
+      try {
+        const res = await fetch(c.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(c.body),
+        });
+
+        const data = await safeJson(res);
+        if (res.ok && data?.access) {
+          localStorage.setItem("auth:access", data.access);
+          if (data.refresh) localStorage.setItem("auth:refresh", data.refresh);
+          return data.access;
+        }
+      } catch {
+        // try next
+      }
+    }
+
+    return null;
+  };
+
+  const authFetch = async (url, options = {}) => {
+    const access = localStorage.getItem("auth:access");
+    const headers = {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${access}`,
+    };
+
+    let res = await fetch(url, { ...options, headers });
+
+    if (res.status === 401) {
+      const newAccess = await refreshAccessToken();
+      if (newAccess) {
+        const headers2 = {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${newAccess}`,
+        };
+        res = await fetch(url, { ...options, headers: headers2 });
+      }
+    }
+
+    return res;
+  };
+
+  const num = (x) => {
+    const n = typeof x === "number" ? x : parseFloat(x);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const getDate = (d) => {
+    // support multiple possible backend field names
+    return (
+      d?.date ||
+      d?.created_at ||
+      d?.createdAt ||
+      d?.timestamp ||
+      d?.created ||
+      null
+    );
+  };
+
+  const getCampaignId = (d) => {
+    // support: campaign (id) OR campaign.id OR campaignId
+    if (Number.isFinite(d?.campaign)) return d.campaign;
+    if (Number.isFinite(d?.campaignId)) return d.campaignId;
+    if (Number.isFinite(d?.campaign?.id)) return d.campaign.id;
+    return null;
+  };
+
+  const getCampaignTitle = (d) => {
+    return (
+      d?.campaignTitle ||
+      d?.campaign_title ||
+      d?.campaign?.title ||
+      d?.campaign_name ||
+      "Campaign"
+    );
+  };
+
+  const getOrganization = (d) => {
+    return d?.organization || d?.campaign?.organization || "Organization";
+  };
+
+  const getStatus = (d) => {
+    return d?.status || d?.status_display || "Completed";
+  };
+
+  const mapDonationForCards = (d) => {
+    return {
+      id: d?.id ?? `${getCampaignId(d) ?? "c"}-${getDate(d) ?? Math.random()}`,
+      organization: getCampaignTitle(d) || getOrganization(d),
+      amount: num(d?.amount),
+      date: getDate(d) || new Date().toISOString(),
+      status: getStatus(d),
+    };
+  };
+
+  // ---------- load dashboard ----------
+  const loadDashboard = async () => {
+    setLoading(true);
+    setError("");
+
+    // user data (name/email) can still come from localStorage
+    const userData = JSON.parse(localStorage.getItem("userData") || "null");
     if (userData) {
       if (userData.name) setDonorName(userData.name);
       else if (userData.email) setDonorName(userData.email.split("@")[0]);
-
       if (userData.email) setUserEmail(userData.email);
     }
 
-    // Load real donations from API
+    const token = localStorage.getItem("auth:access");
+    if (!token) {
+      setLoading(false);
+      setError("Please log in first");
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const res = await authFetch("/api/donations/");
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          clearAuth();
+          navigate("/login");
+          return;
+        }
+        throw new Error(data?.detail || `HTTP ${res.status}`);
+      }
+
+      // Support array or paginated {results: []}
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+        ? data.results
+        : [];
+
+      // Sort by date desc (safe)
+      const sorted = [...list].sort((a, b) => {
+        const da = new Date(getDate(a) || 0).getTime();
+        const db = new Date(getDate(b) || 0).getTime();
+        return db - da;
+      });
+
+      // totals (count only completed for money)
+      const completed = sorted.filter(
+        (d) => String(getStatus(d)).toLowerCase() === "completed"
+      );
+
+      const total = completed.reduce((sum, d) => sum + num(d.amount), 0);
+
+      const now = new Date();
+      const monthTotal = completed
+        .filter((d) => {
+          const dt = new Date(getDate(d));
+          return (
+            dt.getMonth() === now.getMonth() &&
+            dt.getFullYear() === now.getFullYear()
+          );
+        })
+        .reduce((sum, d) => sum + num(d.amount), 0);
+
+      const campaignSet = new Set();
+      sorted.forEach((d) => {
+        const cid = getCampaignId(d);
+        if (cid !== null) campaignSet.add(cid);
+        else campaignSet.add(getCampaignTitle(d)); // fallback if no id
+      });
+
+      setTotalDonations(total);
+      setThisMonthTotal(monthTotal);
+      setTotalCampaigns(campaignSet.size);
+
+      setRecentDonations(sorted.slice(0, 5).map(mapDonationForCards));
+    } catch (e) {
+      setError(e.message || "Couldn't load dashboard");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -37,11 +236,10 @@ const DonorHome = () => {
       currency: "USD",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(amount || 0);
+    }).format(amount);
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return "";
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
       year: "numeric",
@@ -50,181 +248,40 @@ const DonorHome = () => {
     });
   };
 
-  const getDonationDate = (d) => {
-    // try common backend field names
-    return (
-      d.date || d.created_at || d.createdAt || d.timestamp || d.time || null
-    );
-  };
-
-  const normalizeDonationsList = (data) => {
-    // supports DRF pagination { results: [...] } OR plain array [...]
-    if (Array.isArray(data)) return data;
-    if (data && Array.isArray(data.results)) return data.results;
-    return [];
-  };
-
-  const mapDonationForUI = (d) => {
-    // campaign display (backend may return nested campaign or just id)
-    const campaignTitle =
-      d.campaignTitle ||
-      d.campaign_title ||
-      d.campaign?.title ||
-      d.campaign?.name ||
-      (typeof d.campaign === "string" ? d.campaign : null) ||
-      (typeof d.campaign === "number" ? `Campaign #${d.campaign}` : "Campaign");
-
-    const amount = Number(d.amount || 0);
-
-    const statusRaw = d.status || "Completed";
-    const status =
-      typeof statusRaw === "string" ? statusRaw : String(statusRaw);
-
-    return {
-      id: d.id ?? `${campaignTitle}-${getDonationDate(d) ?? Date.now()}`,
-      organization: campaignTitle,
-      amount,
-      date: getDonationDate(d) || new Date().toISOString(),
-      status,
-    };
-  };
-
-  const refreshAccessToken = async () => {
-    const refresh = localStorage.getItem("auth:refresh");
-    if (!refresh) return null;
-
-    // Most common with SimpleJWT:
-    // POST /api/auth/token/refresh/ { refresh: "..." } => { access: "..." }
-    const res = await fetch("/api/auth/token/refresh/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh }),
-    });
-
-    const data = await res.json().catch(() => null);
-    if (!res.ok) return null;
-
-    const newAccess = data?.access;
-    if (newAccess) {
-      localStorage.setItem("auth:access", newAccess);
-      return newAccess;
-    }
-    return null;
-  };
-
-  const fetchDonations = async (token) => {
-    const res = await fetch("/api/donations/", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await res.json().catch(() => null);
-    return { res, data };
-  };
-
-  const loadDashboard = async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      let token = localStorage.getItem("auth:access");
-
-      if (!token) {
-        setError("Please log in first");
-        navigate("/login");
-        return;
-      }
-
-      // 1) Try normally
-      let { res, data } = await fetchDonations(token);
-
-      // 2) If unauthorized, try refresh then retry once
-      if (!res.ok && (res.status === 401 || res.status === 403)) {
-        const newAccess = await refreshAccessToken();
-        if (newAccess) {
-          token = newAccess;
-          ({ res, data } = await fetchDonations(token));
-        }
-      }
-
-      if (!res.ok) {
-        const msg =
-          data?.detail ||
-          data?.message ||
-          (data
-            ? Object.entries(data)
-                .map(
-                  ([k, v]) =>
-                    `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`
-                )
-                .join(" | ")
-            : `HTTP ${res.status}`);
-        throw new Error(msg);
-      }
-
-      const list = normalizeDonationsList(data);
-      const uiList = list.map(mapDonationForUI);
-
-      // Sort newest first
-      uiList.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-      // Recent (top 5)
-      setRecentDonations(uiList.slice(0, 5));
-
-      // Total donations
-      const total = uiList.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
-      setTotalDonations(total);
-
-      // Total campaigns (unique)
-      const uniqueCampaigns = new Set(
-        list.map(
-          (d) =>
-            d.campaign?.id ??
-            d.campaignId ??
-            d.campaign ??
-            d.campaign_title ??
-            d.campaignTitle
-        )
-      );
-      // Remove undefined/null noise
-      const cleaned = new Set(
-        [...uniqueCampaigns].filter((x) => x !== undefined && x !== null)
-      );
-      setTotalCampaigns(cleaned.size || (uiList.length ? uiList.length : 0));
-
-      // This month total
-      const now = new Date();
-      const monthTotal = uiList
-        .filter((d) => {
-          const dt = new Date(d.date);
-          return (
-            dt.getMonth() === now.getMonth() &&
-            dt.getFullYear() === now.getFullYear()
-          );
-        })
-        .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
-      setThisMonthTotal(monthTotal);
-    } catch (e) {
-      setError(e.message || "Couldn't load dashboard");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleNewDonation = () => {
-    navigate("/campaigns");
-  };
+  const handleNewDonation = () => navigate("/campaigns");
 
   const handleLogout = () => {
-    // Clear auth + user info
-    localStorage.removeItem("auth:access");
-    localStorage.removeItem("auth:refresh");
-    localStorage.removeItem("userData");
-    // optional old demo data:
-    localStorage.removeItem("donations");
+    clearAuth();
     navigate("/login");
   };
+
+  if (loading) {
+    return (
+      <div className="donor-home">
+        <header className="donor-header">
+          <div className="header-container">
+            <div className="header-left">
+              <div className="logo-section">
+                <span className="material-symbols-outlined logo-icon">
+                  volunteer_activism
+                </span>
+                <h1 className="logo-text">HelpingHand</h1>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="donor-main">
+          <div className="donor-content">
+            <div className="empty-state">
+              <span className="material-symbols-outlined empty-icon">sync</span>
+              <p>Loading dashboard...</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="donor-home">
@@ -263,21 +320,23 @@ const DonorHome = () => {
             <p className="page-subtitle">
               Track your donations and make a difference
             </p>
+            {error && (
+              <div className="error-message" style={{ marginTop: 12 }}>
+                <span className="material-symbols-outlined">error</span>
+                {error}
+                <button
+                  onClick={loadDashboard}
+                  style={{
+                    marginLeft: 12,
+                    padding: "6px 10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Error banner */}
-          {error && (
-            <div className="error-message" style={{ marginBottom: 16 }}>
-              <span className="material-symbols-outlined">error</span>
-              {error}
-              <button
-                onClick={loadDashboard}
-                style={{ marginLeft: 12, cursor: "pointer" }}
-              >
-                Retry
-              </button>
-            </div>
-          )}
 
           {/* Stats Cards Grid */}
           <div className="stats-grid">
@@ -347,14 +406,7 @@ const DonorHome = () => {
             </div>
 
             <div className="donations-list">
-              {loading ? (
-                <div className="empty-state">
-                  <span className="material-symbols-outlined empty-icon">
-                    hourglass_empty
-                  </span>
-                  <p>Loading donations...</p>
-                </div>
-              ) : recentDonations.length > 0 ? (
+              {recentDonations.length > 0 ? (
                 recentDonations.map((donation) => (
                   <div key={donation.id} className="donation-card">
                     <div className="donation-card-glow"></div>
