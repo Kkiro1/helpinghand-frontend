@@ -1,83 +1,232 @@
-# HelpingHand - Donation Management Platform
+# HelpingHand Frontend (React)
 
-A React.js-based donation management platform with user authentication for donors, recipients, and organizations.
+HelpingHand is a donation platform UI that connects donors with campaigns. This repository contains the **frontend** (React) that talks to the Django/DRF backend via `/api/*` endpoints.
 
-## Features
+---
 
-- **Login Page**: Sign in with email/password or social login (Google, Facebook)
-- **Signup Page**: Create a new account with role selection (Donor, Recipient, Both)
-- **User Types**: Support for Donors, Recipients, and Organizations
-- **Modern UI**: Clean and responsive design
+## Features (Current)
 
-## Prerequisites
+- **Auth**
 
-Before running the application, make sure you have:
-- **Node.js** (version 14 or higher) - [Download here](https://nodejs.org/)
-- **npm** (comes with Node.js) or **yarn**
+  - Login + Signup with role selection (donor / recipient / organization)
+  - Stores JWT tokens in `localStorage`
+  - Auto-refreshes access token when it expires (via `authFetch`)
 
-## Installation & Setup
+- **Donor flow**
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+  - Donor Dashboard (totals + recent donations)
+  - Browse Campaigns (search + category filter)
+  - Campaign details + Donate flow
+  - Donation History (filter by status)
 
-2. **Start the Development Server**
-   ```bash
-   npm start
-   ```
+- **Organization**
 
-3. **Open in Browser**
-   - The app will automatically open at `http://localhost:3000`
-   - If it doesn't open automatically, navigate to that URL in your browser
+  - Basic Organization Dashboard route (WIP UI)
 
-## Available Scripts
+> Note: Recipient/Organization flows currently route to donor-style pages in some cases (placeholders).
 
-- `npm start` - Runs the app in development mode
-- `npm build` - Builds the app for production
-- `npm test` - Launches the test runner
+---
+
+## Tech Stack
+
+- React 18
+- React Router v6
+- Create React App (CRA)
+- Fetch API + `authFetch` helper for authenticated requests
+
+---
 
 ## Project Structure
 
 ```
-helpinghand/
-├── public/
-│   └── index.html          # HTML template
-├── src/
-│   ├── pages/
-│   │   ├── Login.js        # Login page component
-│   │   ├── Login.css       # Login page styles
-│   │   ├── Signup.js       # Signup page component
-│   │   └── Signup.css      # Signup page styles
-│   ├── App.js              # Main app component with routing
-│   ├── App.css             # App styles
-│   ├── index.js            # React entry point
-│   └── index.css           # Global styles
-├── package.json            # Dependencies and scripts
-└── README.md              # This file
+src/
+  components/
+    ProtectedRoute.js
+  pages/
+    Home.js
+    Login.js
+    Signup.js
+    DonorHome.js
+    Campaigns.js
+    Donate.js
+    DonationHistory.js
+  utils/
+    authFetch.js
+  App.js
 ```
 
-## Pages
+---
 
-- **Login Page** (`/login`): Sign in to your account
-  - Select user type: Donor, Recipient, or Organization
-  - Email/password authentication
-  - Social login options (Google, Facebook)
-  
-- **Signup Page** (`/signup`): Create a new account
-  - Full name, email, and password
-  - Role selection: Donor, Recipient, or Both
-  - Terms and conditions acceptance
+## Prerequisites
 
-## Next Steps
+- Node.js **18+** (recommended)
+- npm (comes with Node)
 
-After running the application, you can:
-1. Navigate to `/login` to see the login page
-2. Navigate to `/signup` to see the signup page
-3. Test the form validations and user interactions
+---
 
-## Notes
+## Setup & Run (Development)
 
-- The authentication is currently set up with placeholder logic
-- You'll need to connect it to a backend API for actual authentication
-- Social login buttons are UI-only and need backend integration
+### 1) Install dependencies
+
+```bash
+npm install
+```
+
+### 2) Make sure the backend is running
+
+The frontend is configured to send API requests to the backend in development via a CRA proxy:
+
+- Frontend: `http://localhost:3000`
+- Backend: `http://127.0.0.1:8000`
+
+Start your backend (example):
+
+```bash
+python manage.py runserver 127.0.0.1:8000
+```
+
+### 3) Start the frontend
+
+```bash
+npm start
+```
+
+---
+
+## API Proxy (Important)
+
+This repo uses CRA’s `proxy` field so the frontend can call the backend like this:
+
+- `fetch("/api/campaigns/")`
+  instead of:
+- `fetch("http://127.0.0.1:8000/api/campaigns/")`
+
+In `package.json` (already included):
+
+```json
+"proxy": "http://127.0.0.1:8000"
+```
+
+---
+
+## Routes
+
+- `/` → Home
+- `/login` → Login
+- `/signup` → Signup
+- `/donor-home` → Donor dashboard (protected)
+- `/campaigns` → Browse campaigns (protected)
+- `/donate/:campaignId` → Donate to campaign (protected)
+- `/donation-history` → Donation history (protected)
+- `/organization` → Organization dashboard (protected)
+
+Protected routing is handled by:
+
+- `src/components/ProtectedRoute.js`
+
+---
+
+## Authentication & Local Storage Keys
+
+### Tokens / session
+
+Stored in `localStorage`:
+
+- `auth:access` → JWT access token
+- `auth:refresh` → JWT refresh token
+- `auth:user` → user object (JSON)
+- `userData` → frontend compatibility object used by some UI pages (JSON)
+
+### Auto token refresh
+
+All authenticated API calls should use:
+
+- `src/utils/authFetch.js`
+
+It automatically:
+
+- Adds `Authorization: Bearer <access>`
+- If it gets `401`, it tries `POST /api/auth/refresh/` using the refresh token
+- Retries the original request with the new access token
+
+---
+
+## Backend Endpoints Used (Frontend Calls)
+
+### Auth
+
+- `POST /api/auth/login/`
+- `POST /api/auth/register/`
+- `POST /api/auth/refresh/`
+- `GET  /api/auth/me/` (used by `ProtectedRoute`)
+
+### Campaigns
+
+- `GET /api/campaigns/`
+- `GET /api/campaigns/<id>/`
+
+### Donations
+
+- `POST /api/donations/`
+- `GET  /api/donations/`
+
+**Donation payload (current frontend)**
+
+```json
+{
+  "campaign": 1,
+  "amount": 50,
+  "paymentMethod": "card",
+  "isAnonymous": false,
+  "status": "Completed"
+}
+```
+
+---
+
+## Common Dev Issues
+
+### “I’m logged in but still redirected to /login”
+
+- Check `localStorage` has `auth:access`
+- If access expired and refresh is missing/invalid, you’ll get redirected
+- Fix: login again, or clear storage:
+
+  - DevTools → Application → Local Storage → Clear
+
+### CORS / Network errors
+
+In development, you should **NOT** hit CORS if you use `/api/...` + proxy.
+If you used full backend URLs manually, switch back to relative `/api/...`.
+
+---
+
+## Scripts
+
+```bash
+npm start      # run dev server
+npm test       # run tests (CRA default)
+npm run build  # production build
+```
+
+---
+
+## Production Note (Proxy does NOT work in build)
+
+CRA’s `"proxy"` is **dev-only**. For production you must:
+
+- Serve frontend and backend under the same domain, **or**
+- Update `authFetch` (and any direct `fetch`) to use a real API base URL (e.g. env var like `REACT_APP_API_BASE`).
+
+---
+
+## Quick Manual Test Flow
+
+1. Run backend on `127.0.0.1:8000`
+2. `npm start`
+3. Signup → Login
+4. Go to Campaigns → open a campaign → donate
+5. Verify:
+
+   - Donation History shows the donation
+   - DonorHome dashboard totals update based on `/api/donations/`
