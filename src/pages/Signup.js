@@ -12,12 +12,13 @@ const Signup = () => {
     terms: false,
   });
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData((p) => ({
-      ...p,
+    setFormData((prev) => ({
+      ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
     setError("");
@@ -28,10 +29,43 @@ const Signup = () => {
     setError("");
   };
 
-  const handleSubmit = (e) => {
+  const buildUserData = (backendUser) => {
+    const email = backendUser?.email || formData.email;
+    const name =
+      backendUser?.name ||
+      backendUser?.username ||
+      formData.fullName ||
+      (email.includes("@") ? email.split("@")[0] : email);
+
+    return {
+      name,
+      email,
+      role: role === "both" ? "donor" : role, // UI-safe fallback
+      loginTime: new Date().toISOString(),
+    };
+  };
+
+  const extractErrorMessage = (data, status) => {
+    if (!data) return `HTTP ${status}`;
+    if (typeof data === "string") return data;
+    if (data.detail) return data.detail;
+    if (data.message) return data.message;
+
+    // DRF validation errors {field: ["msg"]}
+    if (typeof data === "object") {
+      return Object.entries(data)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+        .join(" | ");
+    }
+
+    return `HTTP ${status}`;
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
+    // Validation
     if (!formData.fullName || !formData.email || !formData.password) {
       setError("Please fill in all required fields");
       return;
@@ -45,18 +79,76 @@ const Signup = () => {
       return;
     }
 
-    // UI-only signup for now (no backend register endpoint connected yet)
-    // We'll connect signup to backend later.
-    const userData = {
-      name: formData.fullName,
-      email: formData.email,
-      role: role,
-      loginTime: new Date().toISOString(),
-    };
-    localStorage.setItem("userData", JSON.stringify(userData));
+    setIsSubmitting(true);
 
-    // IMPORTANT: since routes are protected now, user must login to get tokens
-    navigate("/login");
+    try {
+      // If user selects "both", most backends don’t support it.
+      // We’ll register as "donor" (you can extend later).
+      const backendRole = role === "both" ? "donor" : role;
+
+      // Try register endpoint (common naming)
+      const registerUrls = ["/api/auth/register/", "/api/auth/signup/"];
+
+      let lastErr = null;
+      let successData = null;
+      let usedUrl = null;
+
+      for (const url of registerUrls) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+            name: formData.fullName,
+            role: backendRole,
+          }),
+        });
+
+        const data = await res.json().catch(() => null);
+
+        if (res.ok) {
+          successData = data;
+          usedUrl = url;
+          break;
+        } else {
+          lastErr = new Error(extractErrorMessage(data, res.status));
+        }
+      }
+
+      if (!successData) throw lastErr || new Error("Signup failed");
+
+      // If backend returns tokens like login does
+      if (successData?.tokens?.access) {
+        localStorage.setItem("auth:access", successData.tokens.access);
+      }
+      if (successData?.tokens?.refresh) {
+        localStorage.setItem("auth:refresh", successData.tokens.refresh);
+      }
+
+      // If backend returns user object
+      if (successData?.user) {
+        localStorage.setItem("auth:user", JSON.stringify(successData.user));
+      }
+
+      // Keep existing UI pages working (they read userData)
+      const userData = buildUserData(successData?.user || null);
+      localStorage.setItem("userData", JSON.stringify(userData));
+
+      // If tokens exist → go dashboard
+      // If tokens do NOT exist → go login (some backends require login after register)
+      if (successData?.tokens?.access) {
+        navigate("/donor-home");
+      } else {
+        navigate("/login");
+      }
+
+      console.log("Signup OK via:", usedUrl);
+    } catch (err) {
+      setError(err.message || "Signup failed");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const roleOptions = [
@@ -95,6 +187,7 @@ const Signup = () => {
             </p>
           </div>
 
+          {/* Social Sign-up (UI only) */}
           <div className="social-signup-section">
             <button className="social-btn google-btn" type="button">
               <img
@@ -122,6 +215,7 @@ const Signup = () => {
             <div className="divider-line"></div>
           </div>
 
+          {/* Signup Form */}
           <form className="signup-form" onSubmit={handleSubmit}>
             {error && (
               <div className="error-message">
@@ -189,6 +283,7 @@ const Signup = () => {
               </div>
             </div>
 
+            {/* Role Selection */}
             <fieldset className="role-fieldset">
               <legend className="role-legend">
                 How would you like to participate?
@@ -218,6 +313,7 @@ const Signup = () => {
               </div>
             </fieldset>
 
+            {/* Terms */}
             <div className="terms-group">
               <label className="checkbox-label">
                 <input
@@ -243,8 +339,12 @@ const Signup = () => {
               </label>
             </div>
 
-            <button type="submit" className="submit-btn">
-              Create Account
+            <button
+              type="submit"
+              className="submit-btn"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Creating Account..." : "Create Account"}
             </button>
           </form>
         </div>
