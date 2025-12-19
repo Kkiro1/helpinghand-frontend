@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import authFetch from "../utils/authFetch";
 import "./DonorHome.css";
 
 const mapDonation = (d) => {
@@ -31,6 +32,13 @@ const mapDonation = (d) => {
   };
 };
 
+const extractError = async (res) => {
+  const data = await res.json().catch(() => null);
+  if (!data) return `HTTP ${res.status}`;
+  if (typeof data === "string") return data;
+  return data.detail || data.message || `HTTP ${res.status}`;
+};
+
 const DonorHome = () => {
   const navigate = useNavigate();
   const [donorName, setDonorName] = useState("User");
@@ -56,37 +64,24 @@ const DonorHome = () => {
     setLoading(true);
     setError("");
 
-    const token = localStorage.getItem("auth:access");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
     try {
-      const res = await fetch("/api/donations/", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch("/api/donations/");
+
+      if (!res.ok) throw new Error(await extractError(res));
 
       const data = await res.json().catch(() => null);
 
-      if (res.status === 401) {
-        localStorage.removeItem("auth:access");
-        localStorage.removeItem("auth:refresh");
-        localStorage.removeItem("userData");
-        navigate("/login");
-        return;
-      }
+      const rawList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+        ? data.results
+        : [];
 
-      if (!res.ok) {
-        throw new Error(data?.detail || data?.message || `HTTP ${res.status}`);
-      }
-
-      const list = Array.isArray(data) ? data.map(mapDonation) : [];
+      const list = rawList.map(mapDonation);
 
       const total = list.reduce((sum, x) => sum + (x.amount || 0), 0);
       setTotalDonations(total);
 
-      // unique campaigns by title (fallback)
       const campaignsSet = new Set(list.map((x) => x.campaignTitle));
       setTotalCampaigns(campaignsSet.size);
 
@@ -100,10 +95,14 @@ const DonorHome = () => {
           );
         })
         .reduce((sum, d) => sum + (d.amount || 0), 0);
-      setThisMonthTotal(monthTotal);
 
+      setThisMonthTotal(monthTotal);
       setRecentDonations(list.slice(0, 5));
     } catch (e) {
+      if (e?.status === 401) {
+        navigate("/login");
+        return;
+      }
       setError(e.message || "Couldn't load dashboard");
     } finally {
       setLoading(false);
@@ -130,6 +129,7 @@ const DonorHome = () => {
   const handleLogout = () => {
     localStorage.removeItem("auth:access");
     localStorage.removeItem("auth:refresh");
+    localStorage.removeItem("auth:user");
     localStorage.removeItem("userData");
     navigate("/login");
   };

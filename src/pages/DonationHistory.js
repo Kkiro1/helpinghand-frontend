@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import authFetch from "../utils/authFetch";
 import "./DonationHistory.css";
 
 const mapDonation = (d) => {
@@ -34,6 +35,13 @@ const mapDonation = (d) => {
   };
 };
 
+const extractError = async (res) => {
+  const data = await res.json().catch(() => null);
+  if (!data) return `HTTP ${res.status}`;
+  if (typeof data === "string") return data;
+  return data.detail || data.message || `HTTP ${res.status}`;
+};
+
 const DonationHistory = () => {
   const navigate = useNavigate();
   const [donations, setDonations] = useState([]);
@@ -51,37 +59,29 @@ const DonationHistory = () => {
     setLoading(true);
     setError("");
 
-    const token = localStorage.getItem("auth:access");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
     try {
-      const res = await fetch("/api/donations/", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch("/api/donations/");
+
+      if (!res.ok) throw new Error(await extractError(res));
 
       const data = await res.json().catch(() => null);
 
-      if (res.status === 401) {
-        localStorage.removeItem("auth:access");
-        localStorage.removeItem("auth:refresh");
-        localStorage.removeItem("userData");
-        navigate("/login");
-        return;
-      }
+      const rawList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+        ? data.results
+        : [];
 
-      if (!res.ok) {
-        throw new Error(data?.detail || data?.message || `HTTP ${res.status}`);
-      }
-
-      const list = Array.isArray(data) ? data.map(mapDonation) : [];
+      const list = rawList.map(mapDonation);
       setDonations(list);
 
       const total = list.reduce((sum, x) => sum + (x.amount || 0), 0);
       setTotalDonated(total);
     } catch (e) {
+      if (e?.status === 401) {
+        navigate("/login");
+        return;
+      }
       setError(e.message || "Couldn't load donations");
     } finally {
       setLoading(false);
@@ -103,16 +103,14 @@ const DonationHistory = () => {
       maximumFractionDigits: 0,
     }).format(amount);
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
+  const formatDate = (dateString) =>
+    new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
-  };
 
   const handleBack = () => navigate("/donor-home");
   const handleNewDonation = () => navigate("/campaigns");

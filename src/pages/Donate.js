@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import authFetch from "../utils/authFetch";
 import "./Donate.css";
 
 const Donate = () => {
@@ -16,18 +17,44 @@ const Donate = () => {
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const quickAmounts = [25, 50, 100, 250, 500];
+
+  const extractError = async (res) => {
+    const data = await res.json().catch(() => null);
+    if (!data) return `HTTP ${res.status}`;
+    if (typeof data === "string") return data;
+    if (data.detail) return data.detail;
+    if (data.message) return data.message;
+
+    // DRF validation errors: { field: ["msg"] }
+    if (typeof data === "object") {
+      return Object.entries(data)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+        .join(" | ");
+    }
+
+    return `HTTP ${res.status}`;
+  };
+
+  // Load campaign
   useEffect(() => {
     async function loadCampaign() {
       try {
         setError("");
         setLoadingCampaign(true);
 
-        const res = await fetch(`/api/campaigns/${campaignId}/`);
+        // campaigns might be public, but authFetch is safe (adds token if exists)
+        const res = await authFetch(`/api/campaigns/${campaignId}/`);
         const data = await res.json().catch(() => null);
 
-        if (!res.ok) throw new Error(data?.detail || "Campaign not found");
+        if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+
         setCampaign(data);
       } catch (e) {
+        if (e?.status === 401) {
+          navigate("/login");
+          return;
+        }
         setCampaign(null);
         setError(e.message || "Campaign not found");
       } finally {
@@ -40,9 +67,7 @@ const Donate = () => {
       setLoadingCampaign(false);
       setError("Campaign not found");
     }
-  }, [campaignId]);
-
-  const quickAmounts = [25, 50, 100, 250, 500];
+  }, [campaignId, navigate]);
 
   const handleAmountSelect = (amount) => {
     setDonationAmount(String(amount));
@@ -88,40 +113,22 @@ const Donate = () => {
         status: "Completed",
       };
 
-      const res = await fetch("/api/donations/", {
+      const res = await authFetch("/api/donations/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(await extractError(res));
 
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        if (data) {
-          if (typeof data === "string") msg = data;
-          else if (data.detail) msg = data.detail;
-          else if (data.message) msg = data.message;
-          else {
-            msg = Object.entries(data)
-              .map(
-                ([k, v]) =>
-                  `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`
-              )
-              .join(" | ");
-          }
-        }
-        throw new Error(msg);
-      }
-
-      // ✅ IMPORTANT: stop writing donations to localStorage
-      // DonationHistory + DonorHome now load from /api/donations/
+      // ✅ DonationHistory + DonorHome load from /api/donations/
       navigate("/donation-history");
-    } catch (e) {
-      setError(e.message || "Donation failed");
+    } catch (e2) {
+      if (e2?.status === 401) {
+        navigate("/login");
+        return;
+      }
+      setError(e2.message || "Donation failed");
     } finally {
       setIsProcessing(false);
     }
@@ -180,6 +187,7 @@ const Donate = () => {
 
       <main className="donate-main">
         <div className="donate-content">
+          {/* Campaign Info */}
           <div className="campaign-info-card">
             <div className="campaign-image-large">
               <span className="campaign-emoji-large">{campaign.image}</span>
@@ -190,6 +198,7 @@ const Donate = () => {
             </div>
           </div>
 
+          {/* Donation Form */}
           <form className="donation-form" onSubmit={handleSubmit}>
             {error && (
               <div className="error-message">
@@ -198,6 +207,7 @@ const Donate = () => {
               </div>
             )}
 
+            {/* Amount Selection */}
             <div className="form-section">
               <label className="form-label">Select Donation Amount</label>
               <div className="amount-buttons">
@@ -232,6 +242,7 @@ const Donate = () => {
               </div>
             </div>
 
+            {/* Payment Method */}
             <div className="form-section">
               <label className="form-label">Payment Method</label>
               <div className="payment-methods">
@@ -271,6 +282,7 @@ const Donate = () => {
               </div>
             </div>
 
+            {/* Anonymous Donation */}
             <div className="form-section">
               <label className="checkbox-label">
                 <input
@@ -283,6 +295,7 @@ const Donate = () => {
               </label>
             </div>
 
+            {/* Submit Button */}
             <button
               type="submit"
               className="submit-donation-btn"

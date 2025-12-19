@@ -1,74 +1,113 @@
-const ACCESS_KEY = "auth:access";
-const REFRESH_KEY = "auth:refresh";
+// src/utils/authFetch.js
 
-async function safeJson(res) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+function safeJson(res) {
+  return res.json().catch(() => null);
 }
 
-async function tryRefreshToken() {
-  const refresh = localStorage.getItem(REFRESH_KEY);
-  if (!refresh) return null;
+function extractErrorMessage(data, fallback = "Request failed") {
+  if (!data) return fallback;
+  if (typeof data === "string") return data;
+  if (data.detail) return data.detail;
+  if (data.message) return data.message;
 
-  // Try the common refresh endpoints (your backend will match one of them)
-  const candidates = [
-    { url: "/api/auth/refresh/", body: { refresh } },
-    { url: "/api/token/refresh/", body: { refresh } },
-    { url: "/api/auth/refresh/", body: { refresh_token: refresh } },
-    { url: "/api/token/refresh/", body: { refresh_token: refresh } },
-  ];
+  // DRF validation errors: {field: ["msg"]}
+  if (typeof data === "object") {
+    return Object.entries(data)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+      .join(" | ");
+  }
 
-  for (const c of candidates) {
-    const res = await fetch(c.url, {
+  return fallback;
+}
+
+async function tryRefreshToken(refreshUrl, refreshToken) {
+  // Attempt #1: SimpleJWT common format { refresh: "..." }
+  let res = await fetch(refreshUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: refreshToken }),
+  });
+
+  let data = await safeJson(res);
+
+  // Attempt #2: some backends use refresh_token
+  if (!res.ok) {
+    res = await fetch(refreshUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(c.body),
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
-
-    const data = await safeJson(res);
-
-    if (res.ok) {
-      const newAccess = data?.access || data?.accessToken || data?.token;
-      if (newAccess) {
-        localStorage.setItem(ACCESS_KEY, newAccess);
-        return newAccess;
-      }
-    }
+    data = await safeJson(res);
   }
 
-  return null;
+  if (!res.ok) return { ok: false, data };
+
+  // Accept multiple response shapes:
+  // - { access: "..." }
+  // - { tokens: { access, refresh } }
+  const newAccess = data?.access || data?.tokens?.access;
+  const newRefresh = data?.refresh || data?.tokens?.refresh;
+
+  if (newAccess) localStorage.setItem("auth:access", newAccess);
+  if (newRefresh) localStorage.setItem("auth:refresh", newRefresh);
+
+  return { ok: !!newAccess, data };
 }
 
-export async function authFetch(url, options = {}) {
-  const token = localStorage.getItem(ACCESS_KEY);
+/**
+ * authFetch(url, options, config?)
+ * - Automatically adds Authorization header (Bearer access)
+ * - On 401 tries refresh and retries once
+ * - If refresh fails -> clears tokens + throws error with status=401
+ */
+export default async function authFetch(
+  url,
+  options = {},
+  config = { refreshUrl: "/api/auth/refresh/" }
+) {
+  const access = localStorage.getItem("auth:access");
+  const refresh = localStorage.getItem("auth:refresh");
 
-  const headers = {
-    ...(options.headers || {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-
-  let res = await fetch(url, { ...options, headers });
-
-  // If access expired, refresh and retry once
-  if (res.status === 401) {
-    const newAccess = await tryRefreshToken();
-
-    if (!newAccess) {
-      localStorage.removeItem(ACCESS_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      throw new Error("Session expired. Please login again.");
-    }
-
-    const retryHeaders = {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${newAccess}`,
-    };
-
-    res = await fetch(url, { ...options, headers: retryHeaders });
+  const headers = new Headers(options.headers || {});
+  if (access && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${access}`);
   }
 
-  return res;
+  const res = await fetch(url, { ...options, headers });
+
+  if (res.status !== 401) return res;
+
+  // 401: try refresh once
+  if (!refresh) {
+    const err = new Error("Unauthorized");
+    err.status = 401;
+    throw err;
+  }
+
+  const refreshUrl = config?.refreshUrl || "/api/auth/refresh/";
+  const refreshResult = await tryRefreshToken(refreshUrl, refresh);
+
+  if (!refreshResult.ok) {
+    // refresh failed -> clear session
+    localStorage.removeItem("auth:access");
+    localStorage.removeItem("auth:refresh");
+    localStorage.removeItem("auth:user");
+    localStorage.removeItem("userData");
+
+    const err = new Error(
+      extractErrorMessage(
+        refreshResult.data,
+        "Session expired. Please login again."
+      )
+    );
+    err.status = 401;
+    throw err;
+  }
+
+  // retry request with new access
+  const newAccess = localStorage.getItem("auth:access");
+  const retryHeaders = new Headers(options.headers || {});
+  if (newAccess) retryHeaders.set("Authorization", `Bearer ${newAccess}`);
+
+  return fetch(url, { ...options, headers: retryHeaders });
 }

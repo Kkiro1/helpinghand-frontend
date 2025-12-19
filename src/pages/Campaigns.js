@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import authFetch from "../utils/authFetch";
 import "./Campaigns.css";
 
 const Campaigns = () => {
@@ -17,15 +18,27 @@ const Campaigns = () => {
         setLoading(true);
         setError("");
 
-        const res = await fetch("/api/campaigns/");
-        const data = await res.json();
+        const res = await authFetch("/api/campaigns/");
+        const data = await res.json().catch(() => null);
 
-        if (!res.ok)
-          throw new Error(data?.detail || "Failed to load campaigns");
+        if (!res.ok) {
+          const msg = data?.detail || data?.message || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
 
-        // Defensive: ensure it's always an array
-        setCampaigns(Array.isArray(data) ? data : []);
+        // Support both: array or paginated {results: []}
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+          ? data.results
+          : [];
+
+        setCampaigns(list);
       } catch (e) {
+        if (e?.status === 401) {
+          navigate("/login");
+          return;
+        }
         setError(e.message || "Error loading campaigns");
         setCampaigns([]);
       } finally {
@@ -34,7 +47,7 @@ const Campaigns = () => {
     }
 
     loadCampaigns();
-  }, []);
+  }, [navigate]);
 
   const categories = [
     "all",
@@ -63,7 +76,6 @@ const Campaigns = () => {
       const category = campaign.category || "";
 
       const matchesSearch = title.includes(term) || desc.includes(term);
-
       const matchesCategory =
         selectedCategory === "all" || category === selectedCategory;
 
@@ -95,7 +107,6 @@ const Campaigns = () => {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  // ✅ Simple loading/error states (no CSS changes needed)
   if (loading) {
     return <div style={{ padding: 20 }}>Loading campaigns...</div>;
   }
@@ -139,6 +150,7 @@ const Campaigns = () => {
                 className="search-input"
               />
             </div>
+
             <div className="category-filter">
               <label className="filter-label">Category:</label>
               <select
@@ -219,7 +231,14 @@ const Campaigns = () => {
                           </span>
                           <span>{campaign.donors || 0} donors</span>
                         </div>
-                        <button className="donate-btn-card">
+                        <button
+                          className="donate-btn-card"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCampaignClick(campaign.id);
+                          }}
+                        >
                           Donate Now
                           <span className="material-symbols-outlined">
                             arrow_forward
