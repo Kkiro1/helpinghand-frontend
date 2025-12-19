@@ -5,11 +5,14 @@ import "./Donate.css";
 const Donate = () => {
   const navigate = useNavigate();
   const { campaignId } = useParams();
+
   const [donationAmount, setDonationAmount] = useState("");
   const [customAmount, setCustomAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [isAnonymous, setIsAnonymous] = useState(false);
+
   const [campaign, setCampaign] = useState(null);
+  const [loadingCampaign, setLoadingCampaign] = useState(true);
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -18,10 +21,10 @@ const Donate = () => {
     async function loadCampaign() {
       try {
         setError("");
-        setCampaign(null);
+        setLoadingCampaign(true);
 
         const res = await fetch(`/api/campaigns/${campaignId}/`);
-        const data = await res.json();
+        const data = await res.json().catch(() => null);
 
         if (!res.ok) {
           throw new Error(data?.detail || "Campaign not found");
@@ -29,13 +32,16 @@ const Donate = () => {
 
         setCampaign(data);
       } catch (e) {
+        setCampaign(null);
         setError(e.message || "Campaign not found");
+      } finally {
+        setLoadingCampaign(false);
       }
     }
 
-    if (campaignId) {
-      loadCampaign();
-    } else {
+    if (campaignId) loadCampaign();
+    else {
+      setLoadingCampaign(false);
       setError("Campaign not found");
     }
   }, [campaignId]);
@@ -43,17 +49,17 @@ const Donate = () => {
   const quickAmounts = [25, 50, 100, 250, 500];
 
   const handleAmountSelect = (amount) => {
-    setDonationAmount(amount.toString());
+    setDonationAmount(String(amount));
     setCustomAmount("");
   };
 
   const handleCustomAmountChange = (e) => {
     const value = e.target.value;
+
+    // allow empty or digits only
     if (value === "" || /^\d+$/.test(value)) {
       setCustomAmount(value);
-      if (value) {
-        setDonationAmount(value);
-      }
+      setDonationAmount(value); // if empty -> clears donationAmount too
     }
   };
 
@@ -67,7 +73,6 @@ const Donate = () => {
       return;
     }
 
-    // Must be logged in (token saved by Login.js)
     const token = localStorage.getItem("auth:access");
     if (!token) {
       setError("Please log in first to donate");
@@ -78,44 +83,67 @@ const Donate = () => {
     setIsProcessing(true);
 
     try {
+      const campaignPk = parseInt(campaignId, 10);
+
+      // ✅ IMPORTANT: Send ONLY campaignId (NOT campaign)
+      const payload = {
+        campaignId: campaignPk,
+        amount: amount,
+        paymentMethod: paymentMethod,
+        isAnonymous: isAnonymous,
+        status: "Completed",
+      };
+
+      console.log("DONATION payload:", payload);
+
       const res = await fetch("/api/donations/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          campaignId: parseInt(campaignId, 10),
-          amount: amount,
-          paymentMethod: paymentMethod,
-          isAnonymous: isAnonymous,
-          status: "Completed",
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        const msg = data?.detail || data?.message || "Donation failed";
+        // show real DRF errors
+        let msg = `HTTP ${res.status}`;
+
+        if (data) {
+          if (typeof data === "string") msg = data;
+          else if (data.detail) msg = data.detail;
+          else if (data.message) msg = data.message;
+          else {
+            msg = Object.entries(data)
+              .map(
+                ([k, v]) =>
+                  `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`
+              )
+              .join(" | ");
+          }
+        }
+
         throw new Error(msg);
       }
 
-      // Temporary compatibility: keep localStorage donation history until we connect DonationHistory to the API
+      // Temporary UI compatibility: keep localStorage donation history
       const donations = JSON.parse(localStorage.getItem("donations") || "[]");
       const newDonation = {
         id: data?.id || Date.now(),
         campaignTitle: data?.campaignTitle || campaign?.title,
         organization: data?.organization || campaign?.organization,
         amount: amount,
-        date: new Date().toISOString(),
-        paymentMethod: paymentMethod,
-        isAnonymous: isAnonymous,
-        status: "Completed",
+        date: data?.date || new Date().toISOString(),
+        paymentMethod: data?.paymentMethod || paymentMethod,
+        isAnonymous: data?.isAnonymous ?? isAnonymous,
+        status: data?.status || "Completed",
       };
       donations.unshift(newDonation);
       localStorage.setItem("donations", JSON.stringify(donations));
 
-      // Temporary compatibility: update total donations in userData (used by some UI pages)
+      // Temporary UI compatibility: update total donations in userData
       const userData = JSON.parse(localStorage.getItem("userData") || "{}");
       const currentTotal = userData.totalDonations || 0;
       userData.totalDonations = currentTotal + amount;
@@ -128,6 +156,27 @@ const Donate = () => {
       setIsProcessing(false);
     }
   };
+
+  // Loading / error state
+  if (loadingCampaign) {
+    return (
+      <div className="donate-page">
+        <header className="donate-header">
+          <div className="header-container">
+            <button className="back-btn" onClick={() => navigate("/campaigns")}>
+              <span className="material-symbols-outlined">arrow_back</span>
+              <span>Back to Campaigns</span>
+            </button>
+          </div>
+        </header>
+        <main className="donate-main">
+          <div className="donate-content">
+            <div className="error-message">Loading campaign...</div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (!campaign) {
     return (
@@ -142,9 +191,7 @@ const Donate = () => {
         </header>
         <main className="donate-main">
           <div className="donate-content">
-            <div className="error-message">
-              {error || "Loading campaign..."}
-            </div>
+            <div className="error-message">{error || "Campaign not found"}</div>
           </div>
         </main>
       </div>
@@ -193,7 +240,7 @@ const Donate = () => {
                     key={amount}
                     type="button"
                     className={`amount-btn ${
-                      donationAmount === amount.toString() ? "active" : ""
+                      donationAmount === String(amount) ? "active" : ""
                     }`}
                     onClick={() => handleAmountSelect(amount)}
                   >
@@ -238,6 +285,7 @@ const Donate = () => {
                   <span className="material-symbols-outlined">credit_card</span>
                   <span>Credit/Debit Card</span>
                 </label>
+
                 <label
                   className={`payment-method ${
                     paymentMethod === "paypal" ? "active" : ""
