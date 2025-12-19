@@ -85,9 +85,9 @@ const Donate = () => {
     try {
       const campaignPk = parseInt(campaignId, 10);
 
-      // ✅ IMPORTANT: Send ONLY campaignId (NOT campaign)
+      // ✅ FIX: backend expects "campaign" (FK), not "campaignId"
       const payload = {
-        campaignId: campaignPk,
+        campaign: campaignPk,
         amount: amount,
         paymentMethod: paymentMethod,
         isAnonymous: isAnonymous,
