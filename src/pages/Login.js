@@ -2,23 +2,34 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "./Login.css";
 
+function extractErrorMessage(data) {
+  if (!data) return "Login failed";
+  if (typeof data === "string") return data;
+  if (data.detail) return data.detail;
+  if (data.message) return data.message;
+
+  // DRF validation errors: {field: ["msg"]}
+  if (typeof data === "object") {
+    return Object.entries(data)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+      .join(" | ");
+  }
+
+  return "Login failed";
+}
+
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [userType, setUserType] = useState("donor");
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
+  const [formData, setFormData] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   const navigate = useNavigate();
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      [name]: value,
-    });
+    setFormData((p) => ({ ...p, [name]: value }));
     setError("");
   };
 
@@ -31,7 +42,6 @@ const Login = () => {
     e.preventDefault();
     setError("");
 
-    // Basic validation
     if (!formData.email || !formData.password) {
       setError("Please fill in all fields");
       return;
@@ -39,6 +49,11 @@ const Login = () => {
 
     try {
       setIsSubmitting(true);
+
+      // clear old session (avoids weird token issues)
+      localStorage.removeItem("auth:access");
+      localStorage.removeItem("auth:refresh");
+      localStorage.removeItem("auth:user");
 
       const res = await fetch("/api/auth/login/", {
         method: "POST",
@@ -50,32 +65,26 @@ const Login = () => {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        // Backend may return {detail: "..."} or validation errors
-        const msg =
-          data?.detail ||
-          data?.message ||
-          (typeof data === "object" ? JSON.stringify(data) : "Login failed");
-        throw new Error(msg);
-      }
+      if (!res.ok) throw new Error(extractErrorMessage(data));
 
-      // ✅ Store tokens for future authenticated requests (donations, me, etc.)
-      if (data?.tokens?.access)
-        localStorage.setItem("auth:access", data.tokens.access);
-      if (data?.tokens?.refresh)
-        localStorage.setItem("auth:refresh", data.tokens.refresh);
+      // store tokens
+      const access = data?.tokens?.access;
+      const refresh = data?.tokens?.refresh;
 
-      // ✅ Store user object (backend returns user)
+      if (access) localStorage.setItem("auth:access", access);
+      if (refresh) localStorage.setItem("auth:refresh", refresh);
+
+      // store user (if backend sends it)
       if (data?.user)
         localStorage.setItem("auth:user", JSON.stringify(data.user));
 
-      // ✅ Keep your old frontend logic working (existing pages read userData)
+      // keep old frontend logic working (pages read userData)
       const backendUser = data?.user || {};
       const userData = {
         email: backendUser.email || formData.email,
-        role: userType,
+        role: backendUser.role || backendUser.userType || userType,
         loginTime: new Date().toISOString(),
         name:
           backendUser.name ||
@@ -86,16 +95,8 @@ const Login = () => {
       };
       localStorage.setItem("userData", JSON.stringify(userData));
 
-      // Navigate based on user type (same as your old behavior)
-      if (userType === "donor") {
-        navigate("/donor-home");
-      } else if (userType === "recipient") {
-        navigate("/donor-home"); // Temporary - replace with recipient home later
-      } else if (userType === "organization") {
-        navigate("/donor-home"); // Temporary - replace with organization home later
-      } else {
-        navigate("/donor-home");
-      }
+      // go dashboard
+      navigate("/donor-home");
     } catch (err) {
       setError(err.message || "Login failed");
     } finally {
@@ -170,7 +171,7 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Social Login (still UI only) */}
+          {/* Social Login (UI only) */}
           <div className="social-login-section">
             <button className="social-btn google-btn" type="button">
               <img
@@ -198,7 +199,6 @@ const Login = () => {
             <div className="divider-line"></div>
           </div>
 
-          {/* Login Form */}
           <form className="login-form" onSubmit={handleSubmit}>
             {error && (
               <div className="error-message">
