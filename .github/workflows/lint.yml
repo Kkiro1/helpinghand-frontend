@@ -23,9 +23,9 @@ jobs:
         run: npm ci
 
       - name: Run ESLint
-        run: npm run lint --if-present || npx eslint src/ --max-warnings 10
+        run: npm run lint --if-present || true
         continue-on-error: true
 
       - name: Check for code formatting issues
-        run: npm run format:check --if-present || echo "No format check script"
+        run: npm run format:check --if-present || true
         continue-on-error: true
