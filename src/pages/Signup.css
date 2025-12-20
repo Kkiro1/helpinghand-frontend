@@ -252,8 +252,14 @@
 
 .role-options {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .role-options {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 .role-option {
@@ -362,6 +368,22 @@
 
 .submit-btn:active {
   transform: scale(0.98);
+}
+
+.organization-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1rem;
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.organization-fields textarea.form-input {
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
 }
 
 @media (max-width: 768px) {
