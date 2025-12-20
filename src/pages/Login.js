@@ -1,6 +1,22 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import './Login.css';
+import React, { useState } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import "./Login.css";
+
+function extractErrorMessage(data) {
+  if (!data) return "Login failed";
+  if (typeof data === "string") return data;
+  if (data.detail) return data.detail;
+  if (data.message) return data.message;
+
+  // DRF validation errors: {field: ["msg"]}
+  if (typeof data === "object") {
+    return Object.entries(data)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+      .join(" | ");
+  }
+
+  return "Login failed";
+}
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -11,19 +27,22 @@ const Login = () => {
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ✅ If user was redirected here by ProtectedRoute, it stored the original page in state.from
+  const redirectTo = location.state?.from?.pathname || "/donor-home";
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      [name]: value,
-    });
-    setError('');
+    setFormData((p) => ({ ...p, [name]: value }));
+    setError("");
   };
 
   const handleUserTypeChange = (type) => {
     setUserType(type);
+    setError("");
   };
 
   const extractErrorMessage = (data) => {
@@ -48,11 +67,10 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError("");
 
-    // Basic validation
     if (!formData.email || !formData.password) {
-      setError('Please fill in all fields');
+      setError("Please fill in all fields");
       return;
     }
 
@@ -126,6 +144,7 @@ const Login = () => {
     } catch (err) {
       console.error('Login error:', err);
       setError(err.message || 'Login failed. Please try again.');
+
       setIsSubmitting(false);
     }
   };
@@ -136,7 +155,9 @@ const Login = () => {
         <div className="header-content">
           <div className="logo-section">
             <div className="logo-icon">
-              <span className="material-symbols-outlined">volunteer_activism</span>
+              <span className="material-symbols-outlined">
+                volunteer_activism
+              </span>
             </div>
             <h2 className="logo-text">HelpingHand</h2>
           </div>
@@ -153,37 +174,41 @@ const Login = () => {
         <div className="login-content">
           <div className="login-header-section">
             <h1 className="login-title">Welcome Back</h1>
-            <p className="login-subtitle">
-              Sign in to continue to HelpingHand
-            </p>
+            <p className="login-subtitle">Sign in to continue to HelpingHand</p>
           </div>
 
           {/* User Type Selection */}
           <div className="user-type-section">
-            <label className="user-type-label">
-              I am a:
-            </label>
+            <label className="user-type-label">I am a:</label>
             <div className="user-type-options">
               <button
                 type="button"
-                className={`user-type-btn ${userType === 'donor' ? 'active' : ''}`}
-                onClick={() => handleUserTypeChange('donor')}
+                className={`user-type-btn ${
+                  userType === "donor" ? "active" : ""
+                }`}
+                onClick={() => handleUserTypeChange("donor")}
               >
-                <span className="material-symbols-outlined">volunteer_activism</span>
+                <span className="material-symbols-outlined">
+                  volunteer_activism
+                </span>
                 <span>Donor</span>
               </button>
               <button
                 type="button"
-                className={`user-type-btn ${userType === 'recipient' ? 'active' : ''}`}
-                onClick={() => handleUserTypeChange('recipient')}
+                className={`user-type-btn ${
+                  userType === "recipient" ? "active" : ""
+                }`}
+                onClick={() => handleUserTypeChange("recipient")}
               >
                 <span className="material-symbols-outlined">pan_tool</span>
                 <span>Recipient</span>
               </button>
               <button
                 type="button"
-                className={`user-type-btn ${userType === 'organization' ? 'active' : ''}`}
-                onClick={() => handleUserTypeChange('organization')}
+                className={`user-type-btn ${
+                  userType === "organization" ? "active" : ""
+                }`}
+                onClick={() => handleUserTypeChange("organization")}
               >
                 <span className="material-symbols-outlined">business</span>
                 <span>Organization</span>
@@ -191,7 +216,7 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Social Login */}
+          {/* Social Login (UI only) */}
           <div className="social-login-section">
             <button className="social-btn google-btn" type="button">
               <img
@@ -202,7 +227,11 @@ const Login = () => {
               <span>Continue with Google</span>
             </button>
             <button className="social-btn facebook-btn" type="button">
-              <svg className="social-icon" viewBox="0 0 24 24" fill="currentColor">
+              <svg
+                className="social-icon"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
               </svg>
               <span>Continue with Facebook</span>
@@ -215,7 +244,6 @@ const Login = () => {
             <div className="divider-line"></div>
           </div>
 
-          {/* Login Form */}
           <form className="login-form" onSubmit={handleSubmit}>
             {error && (
               <div className="error-message">
@@ -246,7 +274,7 @@ const Login = () => {
               </label>
               <div className="password-input-wrapper">
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   id="password"
                   name="password"
                   placeholder="Enter your password"
@@ -261,7 +289,7 @@ const Login = () => {
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   <span className="material-symbols-outlined">
-                    {showPassword ? 'visibility_off' : 'visibility'}
+                    {showPassword ? "visibility_off" : "visibility"}
                   </span>
                 </button>
               </div>
@@ -276,9 +304,9 @@ const Login = () => {
                 Forgot password?
               </Link>
             </div>
-
             <button type="submit" className="submit-btn" disabled={isSubmitting}>
               {isSubmitting ? 'Signing In...' : 'Sign In'}
+
             </button>
           </form>
         </div>
@@ -288,5 +316,3 @@ const Login = () => {
 };
 
 export default Login;
-
-

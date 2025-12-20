@@ -1,116 +1,126 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import './Campaigns.css';
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import authFetch from "../utils/authFetch";
+import "./Campaigns.css";
 
 const Campaigns = () => {
   const navigate = useNavigate();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
-  const [campaigns] = useState([
-    {
-      id: 1,
-      title: 'Children\'s Education Fund',
-      description: 'Support education for underprivileged children in rural areas. Help us provide books, supplies, and scholarships.',
-      category: 'Education',
-      goal: 50000,
-      raised: 32500,
-      donors: 245,
-      image: '📚',
-      deadline: '2024-03-15',
-      organization: 'Education for All Foundation'
-    },
-    {
-      id: 2,
-      title: 'Food Bank Network',
-      description: 'Feed families in need. Your donation helps provide nutritious meals to thousands of families every month.',
-      category: 'Food',
-      goal: 75000,
-      raised: 48200,
-      donors: 389,
-      image: '🍽️',
-      deadline: '2024-04-01',
-      organization: 'Community Food Bank'
-    },
-    {
-      id: 3,
-      title: 'Medical Relief Foundation',
-      description: 'Provide medical care and supplies to communities without access to healthcare facilities.',
-      category: 'Health',
-      goal: 100000,
-      raised: 67800,
-      donors: 512,
-      image: '🏥',
-      deadline: '2024-05-20',
-      organization: 'Global Health Initiative'
-    },
-    {
-      id: 4,
-      title: 'Homeless Shelter Support',
-      description: 'Help us provide shelter, food, and support services to homeless individuals and families.',
-      category: 'Shelter',
-      goal: 60000,
-      raised: 28900,
-      donors: 178,
-      image: '🏠',
-      deadline: '2024-03-30',
-      organization: 'Hope Shelter Network'
-    },
-    {
-      id: 5,
-      title: 'Animal Rescue Center',
-      description: 'Rescue, rehabilitate, and find homes for abandoned and abused animals.',
-      category: 'Animals',
-      goal: 30000,
-      raised: 15200,
-      donors: 134,
-      image: '🐾',
-      deadline: '2024-04-15',
-      organization: 'Paws & Claws Rescue'
-    },
-    {
-      id: 6,
-      title: 'Clean Water Initiative',
-      description: 'Bring clean, safe drinking water to communities in need. Every dollar helps provide water wells and filtration systems.',
-      category: 'Environment',
-      goal: 80000,
-      raised: 45600,
-      donors: 298,
-      image: '💧',
-      deadline: '2024-06-01',
-      organization: 'Water for Life'
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadCampaigns() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const res = await authFetch("/api/campaigns/");
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          const msg = data?.detail || data?.message || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+
+        // Support both: array or paginated {results: []}
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+          ? data.results
+          : [];
+
+        setCampaigns(list);
+      } catch (e) {
+        if (e?.status === 401) {
+          navigate("/login");
+          return;
+        }
+        setError(e.message || "Error loading campaigns");
+        setCampaigns([]);
+      } finally {
+        setLoading(false);
+      }
     }
-  ]);
 
-  const categories = ['all', 'Education', 'Food', 'Health', 'Shelter', 'Animals', 'Environment'];
+    loadCampaigns();
+  }, [navigate]);
+
+  const categories = [
+    "all",
+    "Education",
+    "Food",
+    "Health",
+    "Shelter",
+    "Animals",
+    "Environment",
+  ];
 
   const handleCampaignClick = (campaignId) => {
     navigate(`/donate/${campaignId}`);
   };
 
   const handleBack = () => {
-    navigate('/donor-home');
+    navigate("/donor-home");
   };
 
-  const filteredCampaigns = campaigns.filter(campaign => {
-    const matchesSearch = campaign.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         campaign.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'all' || campaign.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredCampaigns = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    return campaigns.filter((campaign) => {
+      const title = (campaign.title || "").toLowerCase();
+      const desc = (campaign.description || "").toLowerCase();
+      const category = campaign.category || "";
+
+      const matchesSearch = title.includes(term) || desc.includes(term);
+      const matchesCategory =
+        selectedCategory === "all" || category === selectedCategory;
+
+      return matchesSearch && matchesCategory;
+    });
+  }, [campaigns, searchTerm, selectedCategory]);
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    const n = Number(amount) || 0;
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(amount);
+    }).format(n);
   };
 
   const calculateProgress = (raised, goal) => {
-    return Math.min((raised / goal) * 100, 100);
+    const r = Number(raised) || 0;
+    const g = Number(goal) || 0;
+    if (g <= 0) return 0;
+    return Math.min((r / g) * 100, 100);
   };
+
+  const formatDeadline = (deadline) => {
+    if (!deadline) return "No deadline";
+    const d = new Date(deadline);
+    if (Number.isNaN(d.getTime())) return "No deadline";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  if (loading) {
+    return <div style={{ padding: 20 }}>Loading campaigns...</div>;
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 20, color: "red" }}>
+        {error}
+        <div style={{ marginTop: 10 }}>
+          <button onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="campaigns-page">
@@ -129,7 +139,9 @@ const Campaigns = () => {
           {/* Search and Filter */}
           <div className="search-filter-section">
             <div className="search-box">
-              <span className="material-symbols-outlined search-icon">search</span>
+              <span className="material-symbols-outlined search-icon">
+                search
+              </span>
               <input
                 type="text"
                 placeholder="Search campaigns..."
@@ -138,6 +150,7 @@ const Campaigns = () => {
                 className="search-input"
               />
             </div>
+
             <div className="category-filter">
               <label className="filter-label">Category:</label>
               <select
@@ -145,9 +158,9 @@ const Campaigns = () => {
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="category-select"
               >
-                {categories.map(cat => (
+                {categories.map((cat) => (
                   <option key={cat} value={cat}>
-                    {cat === 'all' ? 'All Categories' : cat}
+                    {cat === "all" ? "All Categories" : cat}
                   </option>
                 ))}
               </select>
@@ -157,8 +170,12 @@ const Campaigns = () => {
           {/* Campaigns Grid */}
           <div className="campaigns-grid">
             {filteredCampaigns.length > 0 ? (
-              filteredCampaigns.map(campaign => {
-                const progress = calculateProgress(campaign.raised, campaign.goal);
+              filteredCampaigns.map((campaign) => {
+                const progress = calculateProgress(
+                  campaign.raised,
+                  campaign.goal
+                );
+
                 return (
                   <div
                     key={campaign.id}
@@ -166,20 +183,30 @@ const Campaigns = () => {
                     onClick={() => handleCampaignClick(campaign.id)}
                   >
                     <div className="campaign-image">
-                      <span className="campaign-emoji">{campaign.image}</span>
+                      <span className="campaign-emoji">
+                        {campaign.image || "🎯"}
+                      </span>
                     </div>
+
                     <div className="campaign-content">
                       <div className="campaign-header">
-                        <span className="campaign-category">{campaign.category}</span>
+                        <span className="campaign-category">
+                          {campaign.category || "General"}
+                        </span>
                         <span className="campaign-deadline">
-                          <span className="material-symbols-outlined">schedule</span>
-                          {new Date(campaign.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          <span className="material-symbols-outlined">
+                            schedule
+                          </span>
+                          {formatDeadline(campaign.deadline)}
                         </span>
                       </div>
+
                       <h3 className="campaign-title">{campaign.title}</h3>
                       <p className="campaign-org">{campaign.organization}</p>
-                      <p className="campaign-description">{campaign.description}</p>
-                      
+                      <p className="campaign-description">
+                        {campaign.description}
+                      </p>
+
                       <div className="campaign-progress">
                         <div className="progress-bar">
                           <div
@@ -188,19 +215,34 @@ const Campaigns = () => {
                           ></div>
                         </div>
                         <div className="progress-stats">
-                          <span className="progress-raised">{formatCurrency(campaign.raised)}</span>
-                          <span className="progress-goal">of {formatCurrency(campaign.goal)}</span>
+                          <span className="progress-raised">
+                            {formatCurrency(campaign.raised)}
+                          </span>
+                          <span className="progress-goal">
+                            of {formatCurrency(campaign.goal)}
+                          </span>
                         </div>
                       </div>
 
                       <div className="campaign-footer">
                         <div className="campaign-donors">
-                          <span className="material-symbols-outlined">people</span>
-                          <span>{campaign.donors} donors</span>
+                          <span className="material-symbols-outlined">
+                            people
+                          </span>
+                          <span>{campaign.donors || 0} donors</span>
                         </div>
-                        <button className="donate-btn-card">
+                        <button
+                          className="donate-btn-card"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCampaignClick(campaign.id);
+                          }}
+                        >
                           Donate Now
-                          <span className="material-symbols-outlined">arrow_forward</span>
+                          <span className="material-symbols-outlined">
+                            arrow_forward
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -211,7 +253,9 @@ const Campaigns = () => {
               <div className="no-campaigns">
                 <span className="material-symbols-outlined">search_off</span>
                 <p>No campaigns found</p>
-                <p className="no-campaigns-subtitle">Try adjusting your search or filters</p>
+                <p className="no-campaigns-subtitle">
+                  Try adjusting your search or filters
+                </p>
               </div>
             )}
           </div>
@@ -222,4 +266,3 @@ const Campaigns = () => {
 };
 
 export default Campaigns;
-
