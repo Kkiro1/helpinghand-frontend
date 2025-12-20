@@ -2,6 +2,8 @@
 
 HelpingHand is a donation platform UI that connects donors with campaigns. This repository contains the **frontend** (React) that talks to the Django/DRF backend via `/api/*` endpoints.
 
+Start Now: [https://helping-hand-project.netlify.app/](https://helping-hand-project.netlify.app/)
+
 ---
 
 ## Features (Current)
