@@ -1,10 +1,10 @@
-name: Run Tests
+name: CI - React Tests
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, DonerDashboard]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, DonerDashboard]
 
 jobs:
   test:
@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test -- --passWithNoTests --coverage
+        run: npm test -- --passWithNoTests --coverage --watchAll=false --testEnvironment=jsdom
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
