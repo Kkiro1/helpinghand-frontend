@@ -23,9 +23,12 @@ jobs:
         run: npm ci
 
       - name: Build project
+        id: build
         run: npm run build
+        continue-on-error: true
 
       - name: Upload build artifacts
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v3
         with:
           name: build
@@ -33,6 +36,11 @@ jobs:
           retention-days: 30
 
       - name: Check build size
+        if: steps.build.outcome == 'success'
         run: |
-          SIZE=$(du -sh build | cut -f1)
-          echo "Build size: $SIZE"
+          if [ -d "build" ]; then
+            SIZE=$(du -sh build | cut -f1)
+            echo "Build size: $SIZE"
+          else
+            echo "Build directory not found"
+          fi

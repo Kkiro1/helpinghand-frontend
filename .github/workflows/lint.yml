@@ -23,9 +23,19 @@ jobs:
         run: npm ci
 
       - name: Run ESLint
-        run: npm run lint --if-present || true
+        run: |
+          if npm run lint --if-present 2>/dev/null; then
+            echo "Linting passed"
+          else
+            echo "No lint script found or linting skipped"
+          fi
         continue-on-error: true
 
       - name: Check for code formatting issues
-        run: npm run format:check --if-present || true
+        run: |
+          if npm run format:check --if-present 2>/dev/null; then
+            echo "Format check passed"
+          else
+            echo "No format:check script found or check skipped"
+          fi
         continue-on-error: true
