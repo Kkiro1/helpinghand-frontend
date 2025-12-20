@@ -4,12 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import Home from '../Home';
 
 test('renders Home hero and navigation links', () => {
-    render( <
-        MemoryRouter >
-        <
-        Home / >
-        <
-        /MemoryRouter>
+    render(
+        <MemoryRouter>
+            <Home />
+        </MemoryRouter>
     );
 
     expect(screen.getByText(/Welcome to HelpingHand/i)).toBeInTheDocument();
