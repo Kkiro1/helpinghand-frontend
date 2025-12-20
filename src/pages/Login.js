@@ -10,6 +10,7 @@ const Login = () => {
     password: '',
   });
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -25,7 +26,27 @@ const Login = () => {
     setUserType(type);
   };
 
-  const handleSubmit = (e) => {
+  const extractErrorMessage = (data) => {
+    if (!data) return 'Login failed. Please try again.';
+    if (typeof data === 'string') return data;
+    if (data.detail) return data.detail;
+    if (data.message) return data.message;
+    if (data.non_field_errors) {
+      return Array.isArray(data.non_field_errors)
+        ? data.non_field_errors.join(', ')
+        : data.non_field_errors;
+    }
+    // DRF validation errors {field: ["msg"]}
+    if (typeof data === 'object') {
+      const errors = Object.entries(data)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+        .join(' | ');
+      return errors || 'Login failed. Please try again.';
+    }
+    return 'Login failed. Please try again.';
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
@@ -35,39 +56,77 @@ const Login = () => {
       return;
     }
 
-    // Here you would typically make an API call to authenticate
-    console.log('Login attempt:', { ...formData, userType });
-
-    // In a real app, you'd get user data from API response
-    // For now, we'll check localStorage or use email as fallback
-    let userData = JSON.parse(localStorage.getItem('userData')) || {};
-
-    // Update user data with current login info
-    userData = {
-      ...userData,
-      email: formData.email,
-      role: userType,
-      loginTime: new Date().toISOString()
-    };
-
-    // If no name exists, use email username part as fallback
-    if (!userData.name) {
-      userData.name = formData.email.split('@')[0];
+    if (!userType) {
+      setError('Please select your account type');
+      return;
     }
 
-    localStorage.setItem('userData', JSON.stringify(userData));
+    setIsSubmitting(true);
 
-    // Navigate based on user type
-    if (userType === 'donor') {
-      navigate('/donor-home');
-    } else if (userType === 'recipient') {
-      // Navigate to recipient home when created
-      navigate('/donor-home'); // Temporary - replace with recipient home
-    } else if (userType === 'organization') {
-      // Navigate to organization home when created
-      navigate('/donor-home'); // Temporary - replace with organization home
-    } else {
-      navigate('/donor-home');
+    try {
+      // Call the backend login API
+      const response = await fetch('/api/auth/login/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          userType: userType,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        // Handle role mismatch or other errors
+        const errorMsg = extractErrorMessage(data);
+        setError(errorMsg);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Login successful - store tokens and user data
+      if (data?.tokens?.access) {
+        localStorage.setItem('auth:access', data.tokens.access);
+      }
+      if (data?.tokens?.refresh) {
+        localStorage.setItem('auth:refresh', data.tokens.refresh);
+      }
+
+      // Store user data
+      if (data?.user) {
+        localStorage.setItem('auth:user', JSON.stringify(data.user));
+
+        // Also store in userData format for compatibility
+        const userData = {
+          name: data.user.name || data.user.email.split('@')[0],
+          email: data.user.email,
+          role: data.user.role, // Use role from backend, not userType
+          loginTime: new Date().toISOString(),
+        };
+        localStorage.setItem('userData', JSON.stringify(userData));
+
+        // Navigate based on actual user role from backend
+        const userRole = data.user.role;
+        if (userRole === 'organization') {
+          navigate('/organization');
+        } else if (userRole === 'donor' || userRole === 'both') {
+          navigate('/donor-home');
+        } else if (userRole === 'recipient') {
+          navigate('/donor-home'); // Temporary - replace with recipient home
+        } else {
+          navigate('/donor-home');
+        }
+      } else {
+        setError('Login successful but user data not received');
+        setIsSubmitting(false);
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err.message || 'Login failed. Please try again.');
+      setIsSubmitting(false);
     }
   };
 
@@ -218,8 +277,8 @@ const Login = () => {
               </Link>
             </div>
 
-            <button type="submit" className="submit-btn">
-              Sign In
+            <button type="submit" className="submit-btn" disabled={isSubmitting}>
+              {isSubmitting ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
         </div>

@@ -7,6 +7,7 @@ import DonorHome from './pages/DonorHome';
 import Campaigns from './pages/Campaigns';
 import Donate from './pages/Donate';
 import DonationHistory from './pages/DonationHistory';
+import OrganizationDashboard from './OrganizationDashboard';
 import './App.css';
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
           <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/donate/:campaignId" element={<Donate />} />
           <Route path="/donation-history" element={<DonationHistory />} />
+          <Route path="/organization" element={<OrganizationDashboard />} />
         </Routes>
       </div>
     </Router>
