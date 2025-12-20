@@ -74,6 +74,7 @@ const Signup = () => {
     return `HTTP ${status}`;
   };
 
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -130,6 +131,7 @@ const Signup = () => {
 
         const data = await res.json().catch(() => null);
 
+
         if (res.ok) {
           successData = data;
           usedUrl = url;
@@ -166,6 +168,7 @@ const Signup = () => {
         } else {
           navigate("/donor-home");
         }
+
       } else {
         navigate("/login");
       }
@@ -183,6 +186,7 @@ const Signup = () => {
     { id: "recipient", label: "I need Help", icon: "pan_tool" },
     { id: "both", label: "Both", icon: "handshake" },
     { id: "organization", label: "Organization", icon: "business" },
+
   ];
 
   return (

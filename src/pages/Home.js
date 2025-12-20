@@ -45,6 +45,25 @@ const Home = () => {
                             <Link to="/campaigns" className="btn-secondary">
                                 Browse Campaigns
                             </Link>
+                            
+                            {/* ✅ NEW BUTTON ADDED HERE */}
+                            <Link to="/organization">
+                                <button style={{ 
+                                    padding: '12px 24px', 
+                                    fontSize: '16px', 
+                                    backgroundColor: 'transparent', 
+                                    color: 'white', 
+                                    border: '2px solid white', 
+                                    borderRadius: '30px', 
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    marginLeft: '15px',
+                                    transition: '0.3s'
+                                }}>
+                                    Org Dashboard
+                                </button>
+                            </Link>
+
                         </div>
                     </div>
                 </div>
@@ -162,4 +181,3 @@ const Home = () => {
 };
 
 export default Home;
-
