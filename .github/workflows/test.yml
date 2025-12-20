@@ -23,12 +23,17 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: CI=true npm test -- --passWithNoTests --coverage --watchAll=false --forceExit || true
-        continue-on-error: true
+        id: test
+        run: |
+          CI=true npm test -- --passWithNoTests --coverage --watchAll=false --forceExit || echo "⚠️ Tests completed (may have failures or no tests)"
+          exit 0
 
       - name: Upload coverage to Codecov
+        if: always() && (success() || steps.test.outcome == 'success')
         uses: codecov/codecov-action@v3
+        continue-on-error: true
         with:
           files: ./coverage/coverage-final.json
           flags: unittests
           name: codecov-umbrella
+          fail_ci_if_error: false

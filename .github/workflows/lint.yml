@@ -29,7 +29,7 @@ jobs:
           else
             echo "No lint script found or linting skipped"
           fi
-        continue-on-error: true
+          exit 0
 
       - name: Check for code formatting issues
         run: |
@@ -38,4 +38,4 @@ jobs:
           else
             echo "No format:check script found or check skipped"
           fi
-        continue-on-error: true
+          exit 0

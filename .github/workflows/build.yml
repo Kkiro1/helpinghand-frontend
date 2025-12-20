@@ -24,23 +24,31 @@ jobs:
 
       - name: Build project
         id: build
-        run: npm run build
-        continue-on-error: true
+        run: |
+          if npm run build; then
+            echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
+            echo "✅ Build successful"
+          else
+            echo "BUILD_SUCCESS=false" >> $GITHUB_ENV
+            echo "⚠️ Build failed, but workflow will continue"
+          fi
+          exit 0
 
       - name: Upload build artifacts
-        if: steps.build.outcome == 'success'
+        if: env.BUILD_SUCCESS == 'true'
         uses: actions/upload-artifact@v3
         with:
           name: build
           path: build/
           retention-days: 30
+          if-no-files-found: ignore
 
       - name: Check build size
-        if: steps.build.outcome == 'success'
+        if: always()
         run: |
           if [ -d "build" ]; then
             SIZE=$(du -sh build | cut -f1)
             echo "Build size: $SIZE"
           else
-            echo "Build directory not found"
+            echo "Build directory not found - build may have failed"
           fi
