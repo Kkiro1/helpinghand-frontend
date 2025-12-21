@@ -10,6 +10,10 @@ const Signup = () => {
     email: "",
     password: "",
     terms: false,
+    // Organization-specific fields
+    address: "",
+    phone: "",
+    description: "",
   });
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,6 +31,15 @@ const Signup = () => {
   const handleRoleChange = (value) => {
     setRole(value);
     setError("");
+    // Clear organization fields if switching away from organization
+    if (value !== "organization") {
+      setFormData((prev) => ({
+        ...prev,
+        address: "",
+        phone: "",
+        description: "",
+      }));
+    }
   };
 
   const buildUserData = (backendUser) => {
@@ -61,6 +74,7 @@ const Signup = () => {
     return `HTTP ${status}`;
   };
 
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -82,9 +96,24 @@ const Signup = () => {
     setIsSubmitting(true);
 
     try {
-      // If user selects "both", most backends don’t support it.
-      // We’ll register as "donor" (you can extend later).
+      // If user selects "both", most backends don't support it.
+      // We'll register as "donor" (you can extend later).
       const backendRole = role === "both" ? "donor" : role;
+
+      // Build request body
+      const requestBody = {
+        email: formData.email,
+        password: formData.password,
+        fullName: formData.fullName,
+        role: backendRole,
+      };
+
+      // Add organization-specific fields if role is organization
+      if (backendRole === "organization") {
+        requestBody.address = formData.address || "";
+        requestBody.phone = formData.phone || "";
+        requestBody.description = formData.description || "";
+      }
 
       // Try register endpoint (common naming)
       const registerUrls = ["/api/auth/register/", "/api/auth/signup/"];
@@ -97,15 +126,11 @@ const Signup = () => {
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: formData.email,
-            password: formData.password,
-            name: formData.fullName,
-            role: backendRole,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         const data = await res.json().catch(() => null);
+
 
         if (res.ok) {
           successData = data;
@@ -135,10 +160,15 @@ const Signup = () => {
       const userData = buildUserData(successData?.user || null);
       localStorage.setItem("userData", JSON.stringify(userData));
 
-      // If tokens exist → go dashboard
+      // If tokens exist → go to appropriate dashboard based on role
       // If tokens do NOT exist → go login (some backends require login after register)
       if (successData?.tokens?.access) {
-        navigate("/donor-home");
+        if (backendRole === "organization") {
+          navigate("/organization");
+        } else {
+          navigate("/donor-home");
+        }
+
       } else {
         navigate("/login");
       }
@@ -155,6 +185,8 @@ const Signup = () => {
     { id: "donor", label: "I want to Donate", icon: "volunteer_activism" },
     { id: "recipient", label: "I need Help", icon: "pan_tool" },
     { id: "both", label: "Both", icon: "handshake" },
+    { id: "organization", label: "Organization", icon: "business" },
+
   ];
 
   return (
@@ -312,6 +344,56 @@ const Signup = () => {
                 ))}
               </div>
             </fieldset>
+
+            {/* Organization-specific fields */}
+            {role === "organization" && (
+              <div className="organization-fields">
+                <div className="form-group">
+                  <label className="form-label" htmlFor="address">
+                    Address
+                  </label>
+                  <input
+                    type="text"
+                    id="address"
+                    name="address"
+                    placeholder="Enter organization address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className="form-input"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="phone">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    placeholder="Enter phone number"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="form-input"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="description">
+                    Description
+                  </label>
+                  <textarea
+                    id="description"
+                    name="description"
+                    placeholder="Tell us about your organization"
+                    rows="4"
+                    value={formData.description}
+                    onChange={handleChange}
+                    className="form-input"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Terms */}
             <div className="terms-group">

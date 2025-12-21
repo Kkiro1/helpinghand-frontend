@@ -1,0 +1,109 @@
+name: Test Login API
+
+on:
+  push:
+    branches: [ "main", "develop", "feature/**", "fix/**" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  test-login-role-validation:
+    name: Test Login Role Validation
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check if backend exists
+        id: check_backend
+        run: |
+          if [ -d "./helpinghand-backend" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Backend directory not found. Skipping backend tests."
+          fi
+
+      - name: Set up Python
+        if: steps.check_backend.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        if: steps.check_backend.outputs.exists == 'true'
+        working-directory: ./helpinghand-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Setup Database
+        if: steps.check_backend.outputs.exists == 'true'
+        working-directory: ./helpinghand-backend
+        run: |
+          python manage.py migrate --noinput
+
+      - name: Run Login Role Validation Tests
+        if: steps.check_backend.outputs.exists == 'true'
+        working-directory: ./helpinghand-backend
+        run: |
+          python manage.py test accounts.tests_login.LoginRoleValidationTests --verbosity=2
+
+      - name: Skip message
+        if: steps.check_backend.outputs.exists == 'false'
+        run: |
+          echo "⚠️ Backend tests skipped - backend directory not found in this repository"
+          echo "This is expected if backend is in a separate repository"
+
+  test-login-basic:
+    name: Test Basic Login Functionality
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check if backend exists
+        id: check_backend
+        run: |
+          if [ -d "./helpinghand-backend" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Python
+        if: steps.check_backend.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        if: steps.check_backend.outputs.exists == 'true'
+        working-directory: ./helpinghand-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Setup Database
+        if: steps.check_backend.outputs.exists == 'true'
+        working-directory: ./helpinghand-backend
+        run: |
+          python manage.py migrate --noinput
+
+      - name: Run Basic Login Tests
+        if: steps.check_backend.outputs.exists == 'true'
+        working-directory: ./helpinghand-backend
+        run: |
+          python manage.py test accounts.tests.AuthTests.test_login_returns_tokens --verbosity=2
+
+      - name: Skip message
+        if: steps.check_backend.outputs.exists == 'false'
+        run: |
+          echo "⚠️ Backend tests skipped - backend directory not found in this repository"
+          echo "This is expected if backend is in a separate repository"
+

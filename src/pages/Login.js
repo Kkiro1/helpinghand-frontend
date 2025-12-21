@@ -20,9 +20,12 @@ function extractErrorMessage(data) {
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
-  const [userType, setUserType] = useState("donor");
-  const [formData, setFormData] = useState({ email: "", password: "" });
-  const [error, setError] = useState("");
+  const [userType, setUserType] = useState('donor');
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+  });
+  const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
@@ -42,6 +45,26 @@ const Login = () => {
     setError("");
   };
 
+  const extractErrorMessage = (data) => {
+    if (!data) return 'Login failed. Please try again.';
+    if (typeof data === 'string') return data;
+    if (data.detail) return data.detail;
+    if (data.message) return data.message;
+    if (data.non_field_errors) {
+      return Array.isArray(data.non_field_errors)
+        ? data.non_field_errors.join(', ')
+        : data.non_field_errors;
+    }
+    // DRF validation errors {field: ["msg"]}
+    if (typeof data === 'object') {
+      const errors = Object.entries(data)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+        .join(' | ');
+      return errors || 'Login failed. Please try again.';
+    }
+    return 'Login failed. Please try again.';
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -51,59 +74,77 @@ const Login = () => {
       return;
     }
 
+    if (!userType) {
+      setError('Please select your account type');
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
-      setIsSubmitting(true);
-
-      // clear old session (avoids weird token issues)
-      localStorage.removeItem("auth:access");
-      localStorage.removeItem("auth:refresh");
-      localStorage.removeItem("auth:user");
-
-      const res = await fetch("/api/auth/login/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // Call the backend login API
+      const response = await fetch('/api/auth/login/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
-          userType: userType, // backend checks role if provided
+          userType: userType,
         }),
       });
 
-      const data = await res.json().catch(() => null);
+      const data = await response.json().catch(() => null);
 
-      if (!res.ok) throw new Error(extractErrorMessage(data));
+      if (!response.ok) {
+        // Handle role mismatch or other errors
+        const errorMsg = extractErrorMessage(data);
+        setError(errorMsg);
+        setIsSubmitting(false);
+        return;
+      }
 
-      // store tokens
-      const access = data?.tokens?.access;
-      const refresh = data?.tokens?.refresh;
+      // Login successful - store tokens and user data
+      if (data?.tokens?.access) {
+        localStorage.setItem('auth:access', data.tokens.access);
+      }
+      if (data?.tokens?.refresh) {
+        localStorage.setItem('auth:refresh', data.tokens.refresh);
+      }
 
-      if (access) localStorage.setItem("auth:access", access);
-      if (refresh) localStorage.setItem("auth:refresh", refresh);
+      // Store user data
+      if (data?.user) {
+        localStorage.setItem('auth:user', JSON.stringify(data.user));
 
-      // store user (if backend sends it)
-      if (data?.user)
-        localStorage.setItem("auth:user", JSON.stringify(data.user));
+        // Also store in userData format for compatibility
+        const userData = {
+          name: data.user.name || data.user.email.split('@')[0],
+          email: data.user.email,
+          role: data.user.role, // Use role from backend, not userType
+          loginTime: new Date().toISOString(),
+        };
+        localStorage.setItem('userData', JSON.stringify(userData));
 
-      // keep old frontend logic working (pages read userData)
-      const backendUser = data?.user || {};
-      const userData = {
-        email: backendUser.email || formData.email,
-        role: backendUser.role || backendUser.userType || userType,
-        loginTime: new Date().toISOString(),
-        name:
-          backendUser.name ||
-          backendUser.username ||
-          (formData.email.includes("@")
-            ? formData.email.split("@")[0]
-            : formData.email),
-      };
-      localStorage.setItem("userData", JSON.stringify(userData));
-
-      // ✅ Redirect to original requested page (ProtectedRoute) or fallback
-      navigate(redirectTo, { replace: true });
+        // Navigate based on actual user role from backend
+        const userRole = data.user.role;
+        if (userRole === 'organization') {
+          navigate('/organization');
+        } else if (userRole === 'donor' || userRole === 'both') {
+          navigate('/donor-home');
+        } else if (userRole === 'recipient') {
+          navigate('/donor-home'); // Temporary - replace with recipient home
+        } else {
+          navigate('/donor-home');
+        }
+      } else {
+        setError('Login successful but user data not received');
+        setIsSubmitting(false);
+      }
     } catch (err) {
-      setError(err.message || "Login failed");
-    } finally {
+      console.error('Login error:', err);
+      setError(err.message || 'Login failed. Please try again.');
+
       setIsSubmitting(false);
     }
   };
@@ -263,13 +304,9 @@ const Login = () => {
                 Forgot password?
               </Link>
             </div>
+            <button type="submit" className="submit-btn" disabled={isSubmitting}>
+              {isSubmitting ? 'Signing In...' : 'Sign In'}
 
-            <button
-              type="submit"
-              className="submit-btn"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Signing In..." : "Sign In"}
             </button>
           </form>
         </div>
